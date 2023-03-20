@@ -171,6 +171,8 @@ class MyDialog(qt.QDialog):
                 with open("VOICEVOX_response.wav", "wb") as f:
                     f.write(file_content)
                 av_player.play_file("VOICEVOX_response.wav")
+        else:
+            QMessageBox.critical(mw, "Error", f"Unable to get speaker info for speaker {speaker_uuid}. Check that VOICEVOX is running")
 
         """progress_win = mw.progress.start(immediate=True)
         mw.checkpoint("Generating Preview")
