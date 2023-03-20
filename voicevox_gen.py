@@ -12,7 +12,7 @@ import base64
 import uuid
 import re
 
-from . import ffmpeg_installer
+from . import ffmpeg
 
 VOICEVOX_CONFIG_NAME = "VOICEVOX_CONFIG"
 
@@ -221,20 +221,23 @@ class MyDialog(qt.QDialog):
             if voice_samples is not None:
                 voice_base64 = random.choice(voice_samples)
                 file_content = base64.b64decode(voice_base64)
-                with open("VOICEVOX_response.wav", "wb") as f:
+                with open("VOICEVOX_preview.wav", "wb") as f:
                     f.write(file_content)
-                av_player.play_file("VOICEVOX_response.wav")
+                av_player.play_file("VOICEVOX_preview.wav")
         else:
             QMessageBox.critical(mw, "Error", f"Unable to get speaker info for speaker {speaker_uuid}. Check that VOICEVOX is running")
 
 def GenerateAudio(text, speaker_index):
+    #TODO: /multi_synthesis. Returns a zip. File names start at 0001.wav and continue up https://stackoverflow.com/a/10909016
+    # zipfile.read() and pass to mp3 converter. Probably don't need to multithread the creation but could multithread conversion maybe
+
     audio_query_response = requests.post("http://127.0.0.1:50021/audio_query?speaker=" + str(speaker_index) + "&text=" + urllib.parse.quote(text))
     if audio_query_response.status_code != 200:
-        raise Exception('audio_query_response returned status code ' + str(audio_query_response.status_code))
+        raise Exception('audio_query_response returned status code ' + str(audio_query_response.status_code) + ". Check that VOICEVOX is running")
     
     synthesis_response = requests.post("http://127.0.0.1:50021/synthesis?speaker=" + str(speaker_index), data=audio_query_response.content)
     if synthesis_response.status_code != 200:
-        raise Exception('synthesis_response returned status code ' + str(audio_query_response.status_code))
+        raise Exception('synthesis_response returned status code ' + str(audio_query_response.status_code) + ". Check that VOICEVOX is running")
     return synthesis_response.content
 
 def onVoicevoxOptionSelected(browser):
@@ -263,7 +266,7 @@ def onVoicevoxOptionSelected(browser):
         speaker_combo_text = dialog.speaker_combo.itemText(dialog.speaker_combo.currentIndex())
         style_combo_text = dialog.style_combo.itemText(dialog.style_combo.currentIndex())
 
-        # save used stuff
+        # Save previously used stuff
         config = mw.addonManager.getConfig(__name__)
         config['last_source_field'] = source_field
         config['last_destination_field'] = destination_field
@@ -290,7 +293,7 @@ def onVoicevoxOptionSelected(browser):
             audio_data = GenerateAudio(note_text, speaker_index)
             audio_extension = "wav"
 
-            new_audio_data = ffmpeg_installer.ConvertWavToMp3(audio_data)
+            new_audio_data = ffmpeg.ConvertWavToMp3(audio_data)
             if new_audio_data != None:
                 audio_data = new_audio_data
                 audio_extension = "mp3"

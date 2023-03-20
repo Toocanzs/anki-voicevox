@@ -11,9 +11,7 @@ import zipfile
 import subprocess
 
 class FFmpegInstaller:
-    def __init__(self, mw):
-        self.mw = mw
-        self.config = self.mw.addonManager.getConfig(__name__)
+    def __init__(self):
         self.addonPath = dirname(__file__)
         self.can_convert = False
 
@@ -78,14 +76,14 @@ class FFmpegInstaller:
         mw.progress.finish()
     
 
-ffmpegInstaller = FFmpegInstaller(mw)
+ffmpegInstaller = FFmpegInstaller()
 
 def ConvertWavToMp3(wav_data):
     if not ffmpegInstaller.can_convert:
         return None
     startupinfo = subprocess.STARTUPINFO()
     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    process = subprocess.Popen(['ffmpeg', '-y', '-nostats', '-hide_banner', '-i', 'pipe:', '-f', 'mp3', "-qscale:a", "3", '-'], stdout = subprocess.PIPE, stderr = subprocess.PIPE, stdin = subprocess.PIPE, startupinfo=startupinfo)
+    process = subprocess.Popen([ffmpegInstaller.full_ffmpeg_path, '-y', '-nostats', '-hide_banner', '-i', 'pipe:', '-f', 'mp3', "-qscale:a", "3", '-'], stdout = subprocess.PIPE, stderr = subprocess.PIPE, stdin = subprocess.PIPE, startupinfo=startupinfo)
     output = process.communicate(input=wav_data)[0]
     return output
 
