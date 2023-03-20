@@ -2,3 +2,5 @@ included_fonts/
 meta.json
 .code-workspace
 *.ankiaddon
+ffmpeg.exe
+ffmpeg
