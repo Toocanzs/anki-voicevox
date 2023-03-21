@@ -11,7 +11,11 @@ import random
 import base64
 import uuid
 import re
-
+import concurrent.futures
+import zipfile
+import io
+import itertools
+import threading 
 from . import ffmpeg
 
 VOICEVOX_CONFIG_NAME = "VOICEVOX_CONFIG"
@@ -90,6 +94,11 @@ class MyDialog(qt.QDialog):
 
         common_fields = getCommonFields(self.selected_notes)
 
+        if len(common_fields) < 1:
+            QMessageBox.critical(mw, "Error", f"The chosen notes share no fields in common. Make sure you're not selecting two different note types")
+        elif len(common_fields) == 1:
+            QMessageBox.critical(mw, "Error", f"The chosen notes only share a single field in common '{list(common_fields)[0]}'. This would leave no field to put the generated audio without overwriting the sentence data")
+
         self.source_combo = qt.QComboBox()
         self.destination_combo = qt.QComboBox()
 
@@ -124,8 +133,6 @@ class MyDialog(qt.QDialog):
         self.ignore_brackets_checkbox = qt.QCheckBox("Ignore stuff in brackets [...]")
         self.ignore_brackets_checkbox.setCheckState(True)
 
-        #TODO: Prevent source and dest being the same so you don't overwrite the source
-        
         speaker_json = getSpeakersOrNone()
         if speaker_json is None:
             layout.addWidget(qt.QLabel("VOICEVOX service was unable to get speakers list. Please make sure the VOICEVOX service is running and reopen this dialog"))
@@ -226,19 +233,36 @@ class MyDialog(qt.QDialog):
                 av_player.play_file("VOICEVOX_preview.wav")
         else:
             QMessageBox.critical(mw, "Error", f"Unable to get speaker info for speaker {speaker_uuid}. Check that VOICEVOX is running")
+def GenerateAudioQuery(text_and_speaker_index_tuple):
+    try:
+        text = text_and_speaker_index_tuple[0]
+        speaker_index = text_and_speaker_index_tuple[1]
+        audio_query_response = requests.post("http://127.0.0.1:50021/audio_query?speaker=" + str(speaker_index) + "&text=" + urllib.parse.quote(text, safe=''))
+        if audio_query_response.status_code != 200:
+            return None
+        return audio_query_response.content
+    except:
+        return None
 
-def GenerateAudio(text, speaker_index):
-    #TODO: /multi_synthesis. Returns a zip. File names start at 0001.wav and continue up https://stackoverflow.com/a/10909016
-    # zipfile.read() and pass to mp3 converter. Probably don't need to multithread the creation but could multithread conversion maybe
-
-    audio_query_response = requests.post("http://127.0.0.1:50021/audio_query?speaker=" + str(speaker_index) + "&text=" + urllib.parse.quote(text))
-    if audio_query_response.status_code != 200:
-        raise Exception('audio_query_response returned status code ' + str(audio_query_response.status_code) + ". Check that VOICEVOX is running")
-    
-    synthesis_response = requests.post("http://127.0.0.1:50021/synthesis?speaker=" + str(speaker_index), data=audio_query_response.content)
+def SynthesizeAudio(audio_query_json, speaker_index):
+    synthesis_response = requests.post("http://127.0.0.1:50021/synthesis?speaker=" + str(speaker_index), data=audio_query_json)
     if synthesis_response.status_code != 200:
-        raise Exception('synthesis_response returned status code ' + str(audio_query_response.status_code) + ". Check that VOICEVOX is running")
+        return None
     return synthesis_response.content
+
+def MultiSynthesizeAudio(audio_queries, speaker_index): # NOTE: This returns a zip
+    # Create json array of queries
+    combined = b"[" + b','.join(audio_queries) + b"]"
+
+    synthesis_response = requests.post("http://127.0.0.1:50021/multi_synthesis?speaker=" + str(speaker_index), data=combined)
+    if synthesis_response.status_code != 200:
+        return None
+    return synthesis_response.content 
+
+def DivideIntoChunks(array, n):
+    # looping till length l
+    for i in range(0, len(array), n):
+        yield array[i:i + n]
 
 def onVoicevoxOptionSelected(browser):
     voicevox_exists = False
@@ -274,41 +298,74 @@ def onVoicevoxOptionSelected(browser):
         config['last_style_name'] = style_combo_text
         mw.addonManager.writeConfig(__name__, config)
 
-        progress_win = mw.progress.start(immediate=True, label="Generating Audio...")
-        progress_win.show()
-        mw.app.processEvents() #TODO: remove
-        notes_so_far = 0
-        for note_id in dialog.selected_notes:
-            mw.progress.update(value=notes_so_far, max=len(dialog.selected_notes))
-            notes_so_far += 1
-            note = mw.col.getNote(note_id)
+        progress_window = mw.progress.start(immediate=True, min = 0, max = len(dialog.selected_notes), label="Generating Audio...")
+        mw.progress.update(value=0)
+        progress_window.show()
+        mw.app.processEvents()
 
-            # Remove stuff between brackets. Usually japanese cards have pitch accent and reading info in brackets like 「 タイトル[;a,h] を 聞[き,きく;h]いた わけ[;a] じゃ ない[;a] ！」
+        def getNoteTextAndSpeaker(note_id):
+            note = mw.col.getNote(note_id)
             note_text = note[source_field]
+            # Remove stuff between brackets. Usually japanese cards have pitch accent and reading info in brackets like 「 タイトル[;a,h] を 聞[き,きく;h]いた わけ[;a] じゃ ない[;a] ！」
             if dialog.ignore_brackets_checkbox.isChecked():
                 note_text = re.sub("\[.*?\]", "", note_text)
             note_text = re.sub(" ", "", note_text) # there's a lot of spaces for whatever reason which throws off the voice gen so we remove all spaces (japanese doesn't care about them anyway)
+            return (note_text, speaker_index)
+        def updateProgress(notes_so_far, total_notes, bottom_text = ''):
+            mw.progress.update(value=notes_so_far, max=total_notes, label=f"Generating Audio {notes_so_far}/{total_notes}\n{bottom_text}")
+            mw.app.processEvents()
+
+        # We split the work into chunks so we can pass a bunch of audio queries to the synthesizer instead of doing them one at time, but we don't want to do all of them at once so chunks make the most sense
+        CHUNK_SIZE = 4
+        note_chunks = DivideIntoChunks(dialog.selected_notes, CHUNK_SIZE)
+        notes_so_far = 0
+        total_notes = len(dialog.selected_notes)
+        updateProgress(notes_so_far, total_notes)
+        for note_chunk in note_chunks:
+            note_text_and_speakers = map(getNoteTextAndSpeaker, note_chunk)
+            audio_query_count = itertools.count()
+            updateProgress(notes_so_far, total_notes, f"Audio Query: {0}/{len(note_chunk)}")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                futures = {executor.submit(GenerateAudioQuery, x): x for x in note_text_and_speakers}
+                audio_queries = []
+                for future in concurrent.futures.as_completed(futures):
+                    count = next(audio_query_count)
+                    updateProgress(notes_so_far, total_notes, f"Audio Query: {count+1}/{len(note_chunk)}")
+                    audio_queries.append(future.result())
             media_dir = mw.col.media.dir()
+            updateProgress(notes_so_far, total_notes, f"Synthesizing Audio {notes_so_far} to {notes_so_far+CHUNK_SIZE}")
+            zip_bytes = MultiSynthesizeAudio(audio_queries, speaker_index)
 
-            audio_data = GenerateAudio(note_text, speaker_index)
-            audio_extension = "wav"
+            # MultiSynthesis returns zip bytes with ZIP_STORED
+            zip_counter = 0
+            with zipfile.ZipFile(io.BytesIO(zip_bytes), "r", zipfile.ZIP_STORED) as wavs_zip:
+                for name in wavs_zip.namelist():
+                    updateProgress(notes_so_far, total_notes, f"Converting Audio: {zip_counter}/{len(note_chunk)}")
+                    zip_counter+=1
+                    audio_data = wavs_zip.read(name)
+                    chunk_note_index = int(name.replace('.wav', '')) - 1 # Starts at 001.wav, this converts to 0 index
+                    note_id = note_chunk[chunk_note_index]
+                    
+                    audio_extension = "wav"
 
-            new_audio_data = ffmpeg.ConvertWavToMp3(audio_data)
-            if new_audio_data != None:
-                audio_data = new_audio_data
-                audio_extension = "mp3"
+                    new_audio_data = ffmpeg.ConvertWavToMp3(audio_data)
+                    if new_audio_data != None:
+                        audio_data = new_audio_data
+                        audio_extension = "mp3"
 
-            file_id = str(uuid.uuid4())
-            filename = f"VOICEVOX_{file_id}.{audio_extension}"
-            audio_full_path = join(media_dir, filename)
+                    file_id = str(uuid.uuid4())
+                    filename = f"VOICEVOX_{file_id}.{audio_extension}"
+                    audio_full_path = join(media_dir, filename)
 
-            with open(audio_full_path, "wb") as f:
-                f.write(audio_data)
-            
-            audio_field_text = f"[sound:{filename}]"
-            note[destination_field] = audio_field_text
-            note.flush()
-            mw.app.processEvents() #TODO: REMOVE
+                    with open(audio_full_path, "wb") as f:
+                        f.write(audio_data)
+
+                    audio_field_text = f"[sound:{filename}]"
+                    note = mw.col.getNote(note_id)
+                    note[destination_field] = audio_field_text
+                    note.flush()
+                    mw.app.processEvents()
+                    notes_so_far += 1
         mw.progress.finish()
         mw.reset() # reset mw so our changes are applied
     else:
