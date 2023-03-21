@@ -298,10 +298,24 @@ def onVoicevoxOptionSelected(browser):
         config['last_style_name'] = style_combo_text
         mw.addonManager.writeConfig(__name__, config)
 
-        progress_window = mw.progress.start(immediate=True, min = 0, max = len(dialog.selected_notes), label="Generating Audio...")
-        mw.progress.update(value=0)
+        progress_window = qt.QWidget(None)
+        progress_window.setWindowTitle("Generating VOICEVOX Audio")
+        progress_window.setFixedSize(400, 80)
+        progress_window.setWindowModality(qt.Qt.ApplicationModal)
+
+        progress_text = qt.QLabel("Generating Audio...")
+        progress_text.setAlignment(qt.Qt.AlignCenter)
+
+        progress_bar = qt.QProgressBar(progress_window)
+
+        progress_layout = qt.QVBoxLayout()
+        progress_layout.addWidget(progress_text)
+        progress_layout.addWidget(progress_bar)
+
+        progress_window.setLayout(progress_layout)
+
         progress_window.show()
-        mw.app.processEvents()
+        progress_window.setFocus()
 
         def getNoteTextAndSpeaker(note_id):
             note = mw.col.getNote(note_id)
@@ -312,7 +326,9 @@ def onVoicevoxOptionSelected(browser):
             note_text = re.sub(" ", "", note_text) # there's a lot of spaces for whatever reason which throws off the voice gen so we remove all spaces (japanese doesn't care about them anyway)
             return (note_text, speaker_index)
         def updateProgress(notes_so_far, total_notes, bottom_text = ''):
-            mw.progress.update(value=notes_so_far, max=total_notes, label=f"Generating Audio {notes_so_far}/{total_notes}\n{bottom_text}")
+            progress_text.setText(f"Generating Audio {notes_so_far}/{total_notes}\n{bottom_text}")
+            progress_bar.setMaximum(total_notes)
+            progress_bar.setValue(notes_so_far)
             mw.app.processEvents()
 
         # We split the work into chunks so we can pass a bunch of audio queries to the synthesizer instead of doing them one at time, but we don't want to do all of them at once so chunks make the most sense
