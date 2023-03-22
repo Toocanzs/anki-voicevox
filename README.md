@@ -22,6 +22,7 @@ To setup VOICEVOX for this addon, follow these steps (Video guide here https://y
 2. Download the addon from AnkiWeb: https://ankiweb.net/shared/info/366960193
 3. Navigate to your VOICEVOX install and find `run.exe`. `run.exe` will launch the VOICEVOX engine and allow Anki to communicate with it.
     * You must keep `run.exe` running to generate audio in Anki
+    * You can also run just leave `VOICEVOX.exe` instead if you'd prefer
 
 4. Open the Anki card browser and right click on any card and select "Generate VOICEVOX Audio" from the dropdown
     * You can drag and select multiple cards to generate audio for many cards at once. Note that if you select two different types of cards only the fields that they have in common will appear in the source/destination dropdown.
