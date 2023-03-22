@@ -17,6 +17,7 @@ import io
 import itertools
 import threading 
 from . import ffmpeg
+import traceback
 
 VOICEVOX_CONFIG_NAME = "VOICEVOX_CONFIG"
 
@@ -255,10 +256,10 @@ def GenerateAudioQuery(text_and_speaker_index_tuple):
         speaker_index = text_and_speaker_index_tuple[1]
         audio_query_response = requests.post("http://127.0.0.1:50021/audio_query?speaker=" + str(speaker_index) + "&text=" + urllib.parse.quote(text, safe=''))
         if audio_query_response.status_code != 200:
-            return None
+            raise Exception(f"Unable to generate audio for the following text: `{text}`. Response code was {audio_query_response.status_code}\nResponse:{audio_query_response.text}")
         return audio_query_response.content
-    except:
-        return None
+    except Exception as e:
+        raise Exception(f"Unable to generate audio for the following text: `{text}`.\n{traceback.format_exc()}")
 
 def SynthesizeAudio(audio_query_json, speaker_index):
     synthesis_response = requests.post("http://127.0.0.1:50021/synthesis?speaker=" + str(speaker_index), data=audio_query_json)
