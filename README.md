@@ -9,6 +9,8 @@ Download VOICEVOX: https://voicevox.hiroshiba.jp/
 
 Download from AnkiWeb: https://ankiweb.net/shared/info/366960193
 
+View Code on GitHub: https://github.com/Toocanzs/anki-voicevox
+
 # What does this do?
 This is a text to speech addon for Anki that makes use of the VOICEVOX speech synthesis engine to generate audio for Japanese Anki cards.
 

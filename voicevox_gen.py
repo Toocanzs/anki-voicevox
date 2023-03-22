@@ -354,16 +354,18 @@ def onVoicevoxOptionSelected(browser):
         total_notes = len(dialog.selected_notes)
         updateProgress(notes_so_far, total_notes)
         for note_chunk in note_chunks:
-            note_text_and_speakers = map(getNoteTextAndSpeaker, note_chunk)
+            note_text_and_speakers = list(map(getNoteTextAndSpeaker, note_chunk))
             audio_query_count = itertools.count()
             updateProgress(notes_so_far, total_notes, f"Audio Query: {0}/{len(note_chunk)}")
             with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-                futures = {executor.submit(GenerateAudioQuery, x): x for x in note_text_and_speakers}
-                audio_queries = []
+                futures = [executor.submit(GenerateAudioQuery, x) for x in note_text_and_speakers]
+                future_to_index = {futures[i]: i for i in range(len(note_text_and_speakers))} # Keep track of the original future index so we don't run into race issues
+                audio_queries = [None] * len(note_text_and_speakers)
+
                 for future in concurrent.futures.as_completed(futures):
                     count = next(audio_query_count)
                     updateProgress(notes_so_far, total_notes, f"Audio Query: {count+1}/{len(note_chunk)}")
-                    audio_queries.append(future.result())
+                    audio_queries[future_to_index[future]] = future.result()
             media_dir = mw.col.media.dir()
             updateProgress(notes_so_far, total_notes, f"Synthesizing Audio {notes_so_far} to {notes_so_far+CHUNK_SIZE}")
             zip_bytes = MultiSynthesizeAudio(audio_queries, speaker_index)
