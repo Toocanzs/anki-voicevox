@@ -1,6 +1,8 @@
 # VOICEVOX Audio Generator for Anki
 Generate high quality Japanese audio for your Anki cards using the VOICEVOX speech synthesis software
 
+Showoff and setup guide video: https://youtu.be/-V3pnCuEIxw
+
 Download VOICEVOX: https://voicevox.hiroshiba.jp/
 
 Download from AnkiWeb: https://ankiweb.net/shared/info/366960193
