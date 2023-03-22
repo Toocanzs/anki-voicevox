@@ -1,6 +1,8 @@
 # VOICEVOX Audio Generator for Anki
 Generate high quality Japanese audio for your Anki cards using the VOICEVOX speech synthesis software
 
+No more dealing with addons that break randomly after a while or generate low quality audio. You can run VOICEVOX for free on your own computer and generate high quality Japanese audio with a simple right click in the card browser.
+
 Showoff and setup guide video: https://youtu.be/-V3pnCuEIxw
 
 Download VOICEVOX: https://voicevox.hiroshiba.jp/
@@ -12,7 +14,7 @@ This is a text to speech addon for Anki that makes use of the VOICEVOX speech sy
 
 # Setup
 IMPORTANT: This addon requires that the VOICEVOX engine service is running in order to generate audio.
-To setup VOICEVOX for this addon, follow these steps: 
+To setup VOICEVOX for this addon, follow these steps (Video guide here https://youtu.be/-V3pnCuEIxw): 
 1. You can download VOICEVOX from here: https://voicevox.hiroshiba.jp/
     * I prefer the zip package, but you can use the installer if you like
     * Note that it's about 1gb in size. This is a machine learning model so it's quite large
