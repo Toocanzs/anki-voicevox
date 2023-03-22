@@ -259,7 +259,7 @@ def GenerateAudioQuery(text_and_speaker_index_tuple):
             raise Exception(f"Unable to generate audio for the following text: `{text}`. Response code was {audio_query_response.status_code}\nResponse:{audio_query_response.text}")
         return audio_query_response.content
     except Exception as e:
-        raise Exception(f"Unable to generate audio for the following text: `{text}`.\n{traceback.format_exc()}")
+        raise Exception(f"Unable to generate audio for the following text: `{text}`.\nResponse: {audio_query_response.text if audio_query_response is not None else 'None'}\n{traceback.format_exc()}")
 
 def SynthesizeAudio(audio_query_json, speaker_index):
     synthesis_response = requests.post("http://127.0.0.1:50021/synthesis?speaker=" + str(speaker_index), data=audio_query_json)
