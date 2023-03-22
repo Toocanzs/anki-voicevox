@@ -126,12 +126,28 @@ class MyDialog(qt.QDialog):
         self.source_combo.setCurrentIndex(source_field_index)
         self.destination_combo.setCurrentIndex(destination_field_index)
 
-        self.grid_layout.addWidget(qt.QLabel("Source field: "), 0, 0)
+
+        source_label = qt.QLabel("Source field: ")
+        source_tooltip = "The field to read from. For example if your sentence is in the field 'Expression' you want to choose 'Expression' as the source field to read from"
+        source_label.setToolTip(source_tooltip)
+        
+        destination_label = qt.QLabel("Destination field: ")
+        destination_tooltip = "The field to write the audio to. Typically you want to choose a field like 'Audio' or 'Audio on Front' or wherever you want the audio placed on your card."
+        destination_label.setToolTip(destination_tooltip)
+
+        self.source_combo.setToolTip(source_tooltip)
+        self.destination_combo.setToolTip(destination_tooltip)
+
+        self.grid_layout.addWidget(source_label, 0, 0)
         self.grid_layout.addWidget(self.source_combo, 0, 1)
-        self.grid_layout.addWidget(qt.QLabel("Destination field: "), 0, 2)
+        self.grid_layout.addWidget(destination_label, 0, 2)
         self.grid_layout.addWidget(self.destination_combo, 0, 3)
+
+        # TODO: Does anyone actually want to not ignore stuff in brackets? The checkbox is here if we need it but I don't think anyone wants brackets to be read
         self.ignore_brackets_checkbox = qt.QCheckBox("Ignore stuff in brackets [...]")
-        self.ignore_brackets_checkbox.setCheckState(True)
+        self.ignore_brackets_checkbox.setToolTip("Ignores things between brackets. Usually Japanese cards have pitch accent and reading info in brackets. Leave this checked unless you really know what you're doing")
+        self.ignore_brackets_checkbox.setChecked(True)
+        # self.grid_layout.addWidget(self.ignore_brackets_checkbox, 0, 4)
 
         speaker_json = getSpeakersOrNone()
         if speaker_json is None:
