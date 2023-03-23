@@ -18,6 +18,7 @@ import itertools
 import threading 
 from . import ffmpeg
 import traceback
+import re, html
 
 VOICEVOX_CONFIG_NAME = "VOICEVOX_CONFIG"
 
@@ -28,7 +29,9 @@ def getCommonFields(selected_notes):
 
     for note_id in selected_notes:
         note = mw.col.getNote(note_id)
-        model = note._model
+        if note is None: 
+            raise Exception(f"Note with id {note_id} is None.\nNotes: {','.join([mw.col.getNote(id) for id in selected_notes])}.\nPlease submit an issues with more information about what cards caused this at https://github.com/Toocanzs/anki-voicevox/issues/new")
+        model = note.model()
         model_fields = set([f['name'] for f in model['flds']])
         if first:
             common_fields = model_fields # Take the first one as is and we will intersect it with the following ones
@@ -340,10 +343,17 @@ def onVoicevoxOptionSelected(browser):
         def getNoteTextAndSpeaker(note_id):
             note = mw.col.getNote(note_id)
             note_text = note[source_field]
+
+            # Remove html tags https://stackoverflow.com/a/19730306
+            tag_re = re.compile(r'(<!--.*?-->|<[^>]*>)')
+            note_text = tag_re.sub('', note_text)
+            note_text = html.escape(note_text)
+
             # Remove stuff between brackets. Usually japanese cards have pitch accent and reading info in brackets like 「 タイトル[;a,h] を 聞[き,きく;h]いた わけ[;a] じゃ ない[;a] ！」
             if dialog.ignore_brackets_checkbox.isChecked():
                 note_text = re.sub("\[.*?\]", "", note_text)
             note_text = re.sub(" ", "", note_text) # there's a lot of spaces for whatever reason which throws off the voice gen so we remove all spaces (japanese doesn't care about them anyway)
+            
             return (note_text, speaker_index)
         def updateProgress(notes_so_far, total_notes, bottom_text = ''):
             progress_text.setText(f"Generating Audio {notes_so_far}/{total_notes}\n{bottom_text}")
