@@ -268,6 +268,9 @@ def SynthesizeAudio(audio_query_json, speaker_index):
     return synthesis_response.content
 
 def MultiSynthesizeAudio(audio_queries, speaker_index): # NOTE: This returns a zip
+    for q in audio_queries:
+        if q is None:
+            raise Exception("MultiSynthesizeAudio recieved an audio query that was None")
     # Create json array of queries
     combined = b"[" + b','.join(audio_queries) + b"]"
 
@@ -368,7 +371,7 @@ def onVoicevoxOptionSelected(browser):
                     updateProgress(notes_so_far, total_notes, f"Audio Query: {count+1}/{len(note_chunk)}")
                     audio_queries[future_to_index[future]] = future.result()
             media_dir = mw.col.media.dir()
-            updateProgress(notes_so_far, total_notes, f"Synthesizing Audio {notes_so_far} to {notes_so_far+CHUNK_SIZE}")
+            updateProgress(notes_so_far, total_notes, f"Synthesizing Audio {notes_so_far} to {min(notes_so_far+CHUNK_SIZE, total_notes)}")
             zip_bytes = MultiSynthesizeAudio(audio_queries, speaker_index)
 
             # MultiSynthesis returns zip bytes with ZIP_STORED
