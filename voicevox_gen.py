@@ -245,9 +245,12 @@ class MyDialog(qt.QDialog):
             if voice_samples is not None:
                 voice_base64 = random.choice(voice_samples)
                 file_content = base64.b64decode(voice_base64)
-                with open("VOICEVOX_preview.wav", "wb") as f:
+
+                addon_path = dirname(__file__)
+                preivew_path = join(addon_path, "VOICEVOX_preview.wav")
+                with open(preivew_path, "wb") as f:
                     f.write(file_content)
-                av_player.play_file("VOICEVOX_preview.wav")
+                av_player.play_file(preivew_path)
         else:
             QMessageBox.critical(mw, "Error", f"Unable to get speaker info for speaker {speaker_uuid}. Check that VOICEVOX is running")
 def GenerateAudioQuery(text_and_speaker_index_tuple):
