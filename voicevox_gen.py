@@ -11,11 +11,8 @@ import random
 import base64
 import uuid
 import re
-import concurrent.futures
 import zipfile
 import io
-import itertools
-import threading 
 from . import ffmpeg
 import traceback
 import re, html
@@ -346,8 +343,10 @@ def onVoicevoxOptionSelected(browser):
 
             # Remove html tags https://stackoverflow.com/a/19730306
             tag_re = re.compile(r'(<!--.*?-->|<[^>]*>)')
+            entity_re = re.compile(r'(&[^;]+;)')
+
+            note_text = entity_re.sub('', note_text)
             note_text = tag_re.sub('', note_text)
-            note_text = html.escape(note_text)
 
             # Remove stuff between brackets. Usually japanese cards have pitch accent and reading info in brackets like 「 タイトル[;a,h] を 聞[き,きく;h]いた わけ[;a] じゃ ない[;a] ！」
             if dialog.ignore_brackets_checkbox.isChecked():
@@ -367,19 +366,17 @@ def onVoicevoxOptionSelected(browser):
         notes_so_far = 0
         total_notes = len(dialog.selected_notes)
         updateProgress(notes_so_far, total_notes)
+        
         for note_chunk in note_chunks:
-            note_text_and_speakers = list(map(getNoteTextAndSpeaker, note_chunk))
-            audio_query_count = itertools.count()
+            note_text_and_speakers = map(getNoteTextAndSpeaker, note_chunk)
             updateProgress(notes_so_far, total_notes, f"Audio Query: {0}/{len(note_chunk)}")
-            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-                futures = [executor.submit(GenerateAudioQuery, x) for x in note_text_and_speakers]
-                future_to_index = {futures[i]: i for i in range(len(note_text_and_speakers))} # Keep track of the original future index so we don't run into race issues
-                audio_queries = [None] * len(note_text_and_speakers)
+            query_count = 0
+            def GenerateQueryAndUpdateProgress(x, query_count):
+                updateProgress(notes_so_far, total_notes, f"Audio Query: {query_count}/{len(note_chunk)}")
+                query_count+=1
+                return GenerateAudioQuery(x)
 
-                for future in concurrent.futures.as_completed(futures):
-                    count = next(audio_query_count)
-                    updateProgress(notes_so_far, total_notes, f"Audio Query: {count+1}/{len(note_chunk)}")
-                    audio_queries[future_to_index[future]] = future.result()
+            audio_queries = list(map(lambda note: GenerateQueryAndUpdateProgress(note, query_count), note_text_and_speakers))
             media_dir = mw.col.media.dir()
             updateProgress(notes_so_far, total_notes, f"Synthesizing Audio {notes_so_far} to {min(notes_so_far+CHUNK_SIZE, total_notes)}")
             zip_bytes = MultiSynthesizeAudio(audio_queries, speaker_index)
