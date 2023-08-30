@@ -9,6 +9,7 @@ from aqt import mw
 from anki.hooks import addHook
 import zipfile
 import subprocess
+import sys
 
 class FFmpegInstaller:
     def __init__(self):
@@ -81,8 +82,13 @@ ffmpegInstaller = FFmpegInstaller()
 def ConvertWavToMp3(wav_data):
     if not ffmpegInstaller.can_convert:
         return None
-    startupinfo = subprocess.STARTUPINFO()
-    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    # If windows provide additional flags to subprocess.Popen
+    if sys.platform != "darwin":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    else:
+        # On MacOS, subprocess.STARTUPINFO() does not exist
+        startupinfo = None
     process = subprocess.Popen([ffmpegInstaller.full_ffmpeg_path, '-y', '-nostats', '-hide_banner', '-i', 'pipe:', '-f', 'mp3', "-qscale:a", "3", '-'], stdout = subprocess.PIPE, stderr = subprocess.PIPE, stdin = subprocess.PIPE, startupinfo=startupinfo)
     output = process.communicate(input=wav_data)[0]
     return output
