@@ -83,7 +83,7 @@ def ConvertWavToMp3(wav_data):
     if not ffmpegInstaller.can_convert:
         return None
     # If windows provide additional flags to subprocess.Popen
-    if sys.platform != "darwin":
+    if isWin:
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
     else:
