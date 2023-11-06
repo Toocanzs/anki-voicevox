@@ -208,15 +208,15 @@ class MyDialog(qt.QDialog):
         
         self.preview_voice_button.clicked.connect(self.PreviewVoice)
         self.grid_layout.addWidget(self.preview_voice_button, 1, 4)
-
-        self.button_box = qt.QDialogButtonBox()
-        self.button_box.addButton("Cancel", qt.QDialogButtonBox.RejectRole)
-        self.button_box.addButton("Generate Audio", qt.QDialogButtonBox.AcceptRole)
-
-        self.button_box.accepted.connect(self.pre_accept)
-        self.button_box.rejected.connect(self.reject)
-
-        self.grid_layout.addWidget(self.button_box, 2, 0, 1, 5)
+        
+        self.cancel_button = qt.QPushButton("Cancel")
+        self.generate_button = qt.QPushButton("Generate Audio")
+        
+        self.cancel_button.clicked.connect(self.reject)
+        self.generate_button.clicked.connect(self.pre_accept)
+        
+        self.grid_layout.addWidget(self.cancel_button, 2, 0, 1, 2)
+        self.grid_layout.addWidget(self.generate_button, 2, 3, 1, 2)
         
         layout.addLayout(self.grid_layout)
 
@@ -324,10 +324,8 @@ def onVoicevoxOptionSelected(browser):
         progress_window = qt.QWidget(None)
         progress_window.setWindowTitle("Generating VOICEVOX Audio")
         progress_window.setFixedSize(400, 80)
-        progress_window.setWindowModality(qt.Qt.ApplicationModal)
 
         progress_text = qt.QLabel("Generating Audio...")
-        progress_text.setAlignment(qt.Qt.AlignCenter)
 
         progress_bar = qt.QProgressBar(progress_window)
 
