@@ -3,7 +3,7 @@ import os
 import stat
 import requests
 import json
-from anki.utils import isMac, isWin, isLin
+from anki.utils import is_mac, is_win, is_lin
 from aqt import mw
 from anki.hooks import addHook
 import zipfile
@@ -15,7 +15,7 @@ class FFmpegInstaller:
         self.can_convert = False
 
         self.ffmpeg_filename = "ffmpeg"
-        if isWin:
+        if is_win:
             self.ffmpeg_filename += ".exe"
 
         self.full_ffmpeg_path = join(self.addonPath, self.ffmpeg_filename)
@@ -29,11 +29,11 @@ class FFmpegInstaller:
         download_url = None
         if speakers_response.status_code == 200:
             binaries_json = json.loads(speakers_response.content)
-            if isWin:
+            if is_win:
                 download_url = binaries_json['bin']['windows-64']['ffmpeg']
-            elif isLin:
+            elif is_lin:
                 download_url = binaries_json['bin']['linux-64']['ffmpeg']
-            elif isMac:
+            elif is_mac:
                 download_url = binaries_json['bin']['osx-64']['ffmpeg']
             else:
                 return
@@ -62,7 +62,7 @@ class FFmpegInstaller:
                 zf.extractall(dirname(self.full_ffmpeg_path))
             if exists(self.full_ffmpeg_path):
                 # Mark executable on platforms that need that
-                if not isWin:
+                if not is_win:
                     try:
                         st = os.stat(self.full_ffmpeg_path)
                         os.chmod(self.full_ffmpeg_path, st.st_mode | stat.S_IEXEC)
@@ -81,7 +81,7 @@ def ConvertWavToMp3(wav_data):
     if not ffmpegInstaller.can_convert:
         return None
     # If windows provide additional flags to subprocess.Popen
-    if isWin:
+    if is_win:
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
     else:
