@@ -2,14 +2,12 @@ from os.path import dirname, join, exists
 import os
 import stat
 import requests
-import json 
-from aqt.utils import showText
+import json
 from anki.utils import isMac, isWin, isLin
 from aqt import mw
 from anki.hooks import addHook
 import zipfile
 import subprocess
-import sys
 
 class FFmpegInstaller:
     def __init__(self):
@@ -19,14 +17,14 @@ class FFmpegInstaller:
         self.ffmpeg_filename = "ffmpeg"
         if isWin:
             self.ffmpeg_filename += ".exe"
-        
+
         self.full_ffmpeg_path = join(self.addonPath, self.ffmpeg_filename)
 
     def GetFFmpegIfNotExist(self):
         if exists(self.full_ffmpeg_path) or self.can_convert:
             self.can_convert = True
             return
-        
+
         speakers_response = requests.get("https://ffbinaries.com/api/v1/version/4.4.1")
         download_url = None
         if speakers_response.status_code == 200:
@@ -41,7 +39,7 @@ class FFmpegInstaller:
                 return
         else:
             return
-        
+
         progress_win = mw.progress.start(immediate=True, label="Downloading FFmpeg...", min = 0)
         progress_win.show()
         try:
@@ -75,7 +73,7 @@ class FFmpegInstaller:
         except:
             print("FFmpeg failed")
         mw.progress.finish()
-    
+
 
 ffmpegInstaller = FFmpegInstaller()
 
