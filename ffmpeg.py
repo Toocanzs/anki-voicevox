@@ -25,7 +25,7 @@ class FFmpegInstaller:
             self.can_convert = True
             return
 
-        speakers_response = requests.get("https://ffbinaries.com/api/v1/version/4.4.1")
+        speakers_response = requests.get("https://ffbinaries.com/api/v1/version/6.1")
         download_url = None
         if speakers_response.status_code == 200:
             binaries_json = json.loads(speakers_response.content)
