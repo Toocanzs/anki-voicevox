@@ -262,6 +262,45 @@ class MyDialog(qt.QDialog):
 
         self.grid_layout.addWidget(speed_label, 5, 0, 1, 2)
         self.grid_layout.addWidget(speed_slider, 5, 3, 1, 2)
+
+        # Intonation slider
+        intonation_slider = QSlider(qt.Qt.Orientation.Horizontal)
+        intonation_slider.setMinimum(1)
+        intonation_slider.setMaximum(200)
+        intonation_slider.setValue(config.get('intonation_slider_value') or 100)
+        
+        intonation_label = QLabel(f'Intonation scale {intonation_slider.value() / 100}')
+        
+        intonation_slider.valueChanged.connect(update_slider(intonation_slider, intonation_label, 'intonation_slider_value', 'Intonation scale'))
+
+        self.grid_layout.addWidget(intonation_label, 6, 0, 1, 2)
+        self.grid_layout.addWidget(intonation_slider, 6, 3, 1, 2)
+
+        # Initial silence slider
+        initial_silence_slider = QSlider(qt.Qt.Orientation.Horizontal)
+        initial_silence_slider.setMinimum(0)
+        initial_silence_slider.setMaximum(150)
+        initial_silence_slider.setValue(config.get('initial_silence_slider_value') or 10)
+
+        initial_silence_label = QLabel(f'Initial silence scale {initial_silence_slider.value() / 100}')
+
+        initial_silence_slider.valueChanged.connect(update_slider(initial_silence_slider, initial_silence_label, 'initial_silence_slider_value', 'Initial silence scale'))
+
+        self.grid_layout.addWidget(initial_silence_label, 7, 0, 1, 2)
+        self.grid_layout.addWidget(initial_silence_slider, 7, 3, 1, 2)
+
+        # Final silence slider
+        final_silence_slider = QSlider(qt.Qt.Orientation.Horizontal)
+        final_silence_slider.setMinimum(0)
+        final_silence_slider.setMaximum(150)
+        final_silence_slider.setValue(config.get('final_silence_slider_value') or 10)
+
+        final_silence_label = QLabel(f'Final silence length {final_silence_slider.value() / 100}')
+
+        final_silence_slider.valueChanged.connect(update_slider(final_silence_slider, final_silence_label, 'final_silence_slider_value', 'Final silence scale'))
+
+        self.grid_layout.addWidget(final_silence_label, 8, 0, 1, 2)
+        self.grid_layout.addWidget(final_silence_slider, 8, 3, 1, 2)
         
         layout.addLayout(self.grid_layout)
 
@@ -305,6 +344,12 @@ def GenerateAudioQuery(text_and_speaker_index_tuple, config):
             j['volumeScale'] = config.get('volume_slider_value') / 100;
         if config.get('pitch_slider_value'):
             j['pitchScale'] = config.get('pitch_slider_value') / 100;
+        if config.get('intonation_slider_value'):
+            j['intonationScale'] = config.get('intonation_slider_value') / 100;
+        if config.get('initial_silence_slider_value'):
+            j['prePhonemeLength'] = config.get('initial_silence_slider_value') / 100;
+        if config.get('final_silence_slider_value'):
+            j['postPhonemeLength'] = config.get('final_silence_slider_value') / 100;
         result = json.dumps(j, ensure_ascii=False).encode('utf8')
         return result
     except Exception as e:
