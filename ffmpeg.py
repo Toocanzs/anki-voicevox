@@ -43,7 +43,8 @@ class FFmpegInstaller:
             return
         
         progress_win = mw.progress.start(immediate=True, label="Downloading FFmpeg...", min = 0)
-        progress_win.show()
+        if progress_win:
+            progress_win.show()
         try:
             temp_file_path = join(self.addonPath, "ffmpeg.zip")
             # Download zip
