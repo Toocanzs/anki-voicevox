@@ -39,7 +39,7 @@ def getCommonFields(selected_notes):
     return common_fields
 def getSpeakersOrNone():
     try:
-        speakers_response = requests.get("http://127.0.0.1:50021/speakers")
+        speakers_response = requests.get("http://127.0.0.1:50021/speakers", timeout=5)
         if speakers_response.status_code == 200:
             print(speakers_response.content)
             return json.loads(speakers_response.content)
@@ -48,7 +48,7 @@ def getSpeakersOrNone():
     
 def getSpeakerInfo(speaker_uuid):
     try:
-        speakers_response = requests.get("http://127.0.0.1:50021/speaker_info?speaker_uuid=" + str(speaker_uuid))
+        speakers_response = requests.get("http://127.0.0.1:50021/speaker_info?speaker_uuid=" + str(speaker_uuid), timeout=5)
         if speakers_response.status_code == 200:
             print(speakers_response.content)
             return json.loads(speakers_response.content)
@@ -210,14 +210,19 @@ class MyDialog(qt.QDialog):
         self.preview_voice_button.clicked.connect(self.PreviewVoice)
         self.grid_layout.addWidget(self.preview_voice_button, 1, 4)
         
+        self.append_audio =  qt.QCheckBox("Append Audio")
+        append_audio_checked = config.get('append_audio') or "false"
+        self.append_audio.setChecked(True if append_audio_checked == "true" else False)
+        self.grid_layout.addWidget(self.append_audio, 2, 0)
+        
         self.cancel_button = qt.QPushButton("Cancel")
         self.generate_button = qt.QPushButton("Generate Audio")
         
         self.cancel_button.clicked.connect(self.reject)
         self.generate_button.clicked.connect(self.pre_accept)
         
-        self.grid_layout.addWidget(self.cancel_button, 2, 0, 1, 2)
-        self.grid_layout.addWidget(self.generate_button, 2, 3, 1, 2)
+        self.grid_layout.addWidget(self.cancel_button, 3, 0, 1, 2)
+        self.grid_layout.addWidget(self.generate_button, 3, 3, 1, 2)
         
                 
         def update_slider(slider, label, config_name, slider_desc):
@@ -236,8 +241,8 @@ class MyDialog(qt.QDialog):
         
         volume_slider.valueChanged.connect(update_slider(volume_slider, volume_label, 'volume_slider_value', 'Volume scale'))
 
-        self.grid_layout.addWidget(volume_label, 3, 0, 1, 2)
-        self.grid_layout.addWidget(volume_slider, 3, 3, 1, 2)
+        self.grid_layout.addWidget(volume_label, 4, 0, 1, 2)
+        self.grid_layout.addWidget(volume_slider, 4, 3, 1, 2)
         
         pitch_slider = QSlider(qt.Qt.Orientation.Horizontal)
         pitch_slider.setMinimum(-15)
@@ -248,8 +253,8 @@ class MyDialog(qt.QDialog):
         
         pitch_slider.valueChanged.connect(update_slider(pitch_slider, pitch_label, 'pitch_slider_value', 'Pitch scale'))
 
-        self.grid_layout.addWidget(pitch_label, 4, 0, 1, 2)
-        self.grid_layout.addWidget(pitch_slider, 4, 3, 1, 2)
+        self.grid_layout.addWidget(pitch_label, 5, 0, 1, 2)
+        self.grid_layout.addWidget(pitch_slider, 5, 3, 1, 2)
         
         speed_slider = QSlider(qt.Qt.Orientation.Horizontal)
         speed_slider.setMinimum(50)
@@ -260,8 +265,47 @@ class MyDialog(qt.QDialog):
         
         speed_slider.valueChanged.connect(update_slider(speed_slider, speed_label, 'speed_slider_value', 'Speed scale'))
 
-        self.grid_layout.addWidget(speed_label, 5, 0, 1, 2)
-        self.grid_layout.addWidget(speed_slider, 5, 3, 1, 2)
+        self.grid_layout.addWidget(speed_label, 6, 0, 1, 2)
+        self.grid_layout.addWidget(speed_slider, 6, 3, 1, 2)
+
+        # Intonation slider
+        intonation_slider = QSlider(qt.Qt.Orientation.Horizontal)
+        intonation_slider.setMinimum(1)
+        intonation_slider.setMaximum(200)
+        intonation_slider.setValue(config.get('intonation_slider_value') or 100)
+        
+        intonation_label = QLabel(f'Intonation scale {intonation_slider.value() / 100}')
+        
+        intonation_slider.valueChanged.connect(update_slider(intonation_slider, intonation_label, 'intonation_slider_value', 'Intonation scale'))
+
+        self.grid_layout.addWidget(intonation_label, 7, 0, 1, 2)
+        self.grid_layout.addWidget(intonation_slider, 7, 3, 1, 2)
+
+        # Initial silence slider
+        initial_silence_slider = QSlider(qt.Qt.Orientation.Horizontal)
+        initial_silence_slider.setMinimum(0)
+        initial_silence_slider.setMaximum(150)
+        initial_silence_slider.setValue(config.get('initial_silence_slider_value') or 10)
+
+        initial_silence_label = QLabel(f'Initial silence scale {initial_silence_slider.value() / 100}')
+
+        initial_silence_slider.valueChanged.connect(update_slider(initial_silence_slider, initial_silence_label, 'initial_silence_slider_value', 'Initial silence scale'))
+
+        self.grid_layout.addWidget(initial_silence_label, 8, 0, 1, 2)
+        self.grid_layout.addWidget(initial_silence_slider, 8, 3, 1, 2)
+
+        # Final silence slider
+        final_silence_slider = QSlider(qt.Qt.Orientation.Horizontal)
+        final_silence_slider.setMinimum(0)
+        final_silence_slider.setMaximum(150)
+        final_silence_slider.setValue(config.get('final_silence_slider_value') or 10)
+
+        final_silence_label = QLabel(f'Final silence length {final_silence_slider.value() / 100}')
+
+        final_silence_slider.valueChanged.connect(update_slider(final_silence_slider, final_silence_label, 'final_silence_slider_value', 'Final silence scale'))
+
+        self.grid_layout.addWidget(final_silence_label, 9, 0, 1, 2)
+        self.grid_layout.addWidget(final_silence_slider, 9, 3, 1, 2)
         
         layout.addLayout(self.grid_layout)
 
@@ -293,7 +337,7 @@ def GenerateAudioQuery(text_and_speaker_index_tuple, config):
     try:
         text = text_and_speaker_index_tuple[0]
         speaker_index = text_and_speaker_index_tuple[1]
-        audio_query_response = requests.post("http://127.0.0.1:50021/audio_query?speaker=" + str(speaker_index) + "&text=" + urllib.parse.quote(text, safe=''))
+        audio_query_response = requests.post("http://127.0.0.1:50021/audio_query?speaker=" + str(speaker_index) + "&text=" + urllib.parse.quote(text, safe=''), timeout=5)
         if audio_query_response.status_code != 200:
             raise Exception(f"Unable to generate audio for the following text: `{text}`. Response code was {audio_query_response.status_code}\nResponse:{audio_query_response.text}")
             
@@ -305,13 +349,19 @@ def GenerateAudioQuery(text_and_speaker_index_tuple, config):
             j['volumeScale'] = config.get('volume_slider_value') / 100;
         if config.get('pitch_slider_value'):
             j['pitchScale'] = config.get('pitch_slider_value') / 100;
+        if config.get('intonation_slider_value'):
+            j['intonationScale'] = config.get('intonation_slider_value') / 100;
+        if config.get('initial_silence_slider_value'):
+            j['prePhonemeLength'] = config.get('initial_silence_slider_value') / 100;
+        if config.get('final_silence_slider_value'):
+            j['postPhonemeLength'] = config.get('final_silence_slider_value') / 100;
         result = json.dumps(j, ensure_ascii=False).encode('utf8')
         return result
     except Exception as e:
         raise Exception(f"Unable to generate audio for the following text: `{text}`.\nResponse: {audio_query_response.text if audio_query_response is not None else 'None'}\n{traceback.format_exc()}")
 
 def SynthesizeAudio(audio_query_json, speaker_index):
-    synthesis_response = requests.post("http://127.0.0.1:50021/synthesis?speaker=" + str(speaker_index), data=audio_query_json)
+    synthesis_response = requests.post("http://127.0.0.1:50021/synthesis?speaker=" + str(speaker_index), data=audio_query_json, timeout=5)
     if synthesis_response.status_code != 200:
         return None
     return synthesis_response.content
@@ -323,7 +373,7 @@ def MultiSynthesizeAudio(audio_queries, speaker_index): # NOTE: This returns a z
     # Create json array of queries
     combined = b"[" + b','.join(audio_queries) + b"]"
 
-    synthesis_response = requests.post("http://127.0.0.1:50021/multi_synthesis?speaker=" + str(speaker_index), data=combined)
+    synthesis_response = requests.post("http://127.0.0.1:50021/multi_synthesis?speaker=" + str(speaker_index), data=combined, timeout=5)
     if synthesis_response.status_code != 200:
         return None
     return synthesis_response.content 
@@ -336,7 +386,7 @@ def DivideIntoChunks(array, n):
 def onVoicevoxOptionSelected(browser):
     voicevox_exists = False
     try:
-        response = requests.get("http://127.0.0.1:50021/version")
+        response = requests.get("http://127.0.0.1:50021/version", timeout=5)
         if response.status_code == 200:
             print(f"version: {response.content}")
             voicevox_exists = True
@@ -365,6 +415,7 @@ def onVoicevoxOptionSelected(browser):
         config['last_destination_field'] = destination_field
         config['last_speaker_name'] = speaker_combo_text
         config['last_style_name'] = style_combo_text
+        config['append_audio'] = "true" if dialog.append_audio.isChecked() else "false"
         mw.addonManager.writeConfig(__name__, config)
 
         progress_window = qt.QWidget(None)
@@ -454,7 +505,10 @@ def onVoicevoxOptionSelected(browser):
 
                     audio_field_text = f"[sound:{filename}]"
                     note = mw.col.get_note(note_id)
-                    note[destination_field] = audio_field_text
+                    if config['append_audio'] == "true":
+                        note[destination_field] += audio_field_text
+                    else:
+                        note[destination_field] = audio_field_text
                     mw.col.update_note(note)
                     mw.app.processEvents()
                     notes_so_far += 1
