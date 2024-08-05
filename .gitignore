@@ -5,3 +5,4 @@ meta.json
 ffmpeg.exe
 ffmpeg
 *.wav
+__pycache__/

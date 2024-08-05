@@ -7,6 +7,7 @@ from aqt import mw
 from anki.hooks import addHook
 import zipfile
 import subprocess
+import sys
 
 is_mac = sys.platform.startswith("darwin")
 is_win = sys.platform.startswith("win32")
