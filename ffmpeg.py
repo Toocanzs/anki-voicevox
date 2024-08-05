@@ -75,7 +75,7 @@ class FFmpegInstaller:
 
 ffmpegInstaller = FFmpegInstaller()
 
-def ConvertWavToMp3(wav_data):
+def ConvertWav(wav_data, format):
     if not ffmpegInstaller.can_convert:
         return None
     try:
@@ -86,8 +86,17 @@ def ConvertWavToMp3(wav_data):
         else:
             # On MacOS, subprocess.STARTUPINFO() does not exist
             startupinfo = None
-        
-        process = subprocess.Popen([ffmpegInstaller.full_ffmpeg_path, '-y', '-nostats', '-hide_banner', '-i', 'pipe:', '-f', 'mp3', "-qscale:a", "3", '-'], stdout = subprocess.PIPE, stderr = subprocess.PIPE, stdin = subprocess.PIPE, startupinfo=startupinfo)
+
+        ffmpeg_command = [ffmpegInstaller.full_ffmpeg_path, '-y', '-nostats', '-hide_banner', '-i', 'pipe:', '-f', format]
+
+        if format == "mp3":
+            ffmpeg_command +=  ["-qscale:a", "3"]
+        elif format == "opus":
+            ffmpeg_command +=  ["-b:a", "32k"]
+
+        ffmpeg_command.append('-')
+
+        process = subprocess.Popen(ffmpeg_command, stdout = subprocess.PIPE, stderr = subprocess.PIPE, stdin = subprocess.PIPE, startupinfo=startupinfo)
         output = process.communicate(input=wav_data)[0]
         return output
     except Exception as e:
