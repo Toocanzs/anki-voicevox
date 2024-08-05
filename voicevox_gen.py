@@ -214,6 +214,11 @@ class MyDialog(qt.QDialog):
         append_audio_checked = config.get('append_audio') or "false"
         self.append_audio.setChecked(True if append_audio_checked == "true" else False)
         self.grid_layout.addWidget(self.append_audio, 2, 0)
+
+        self.use_opus =  qt.QCheckBox("Use opus instead of mp3")
+        use_opus_checked = config.get('use_opus') or "false"
+        self.use_opus.setChecked(True if use_opus_checked == "true" else False)
+        self.grid_layout.addWidget(self.use_opus, 2, 1)
         
         self.cancel_button = qt.QPushButton("Cancel")
         self.generate_button = qt.QPushButton("Generate Audio")
@@ -416,6 +421,7 @@ def onVoicevoxOptionSelected(browser):
         config['last_speaker_name'] = speaker_combo_text
         config['last_style_name'] = style_combo_text
         config['append_audio'] = "true" if dialog.append_audio.isChecked() else "false"
+        config['use_opus'] = "true" if dialog.use_opus.isChecked() else "false"
         mw.addonManager.writeConfig(__name__, config)
 
         progress_window = qt.QWidget(None)
@@ -491,10 +497,11 @@ def onVoicevoxOptionSelected(browser):
                     
                     audio_extension = "wav"
 
-                    new_audio_data = ffmpeg.ConvertWavToMp3(audio_data)
+                    new_audio_format = "opus" if config['use_opus'] == "true" else "mp3"
+                    new_audio_data = ffmpeg.ConvertWav(audio_data, new_audio_format)
                     if new_audio_data != None:
                         audio_data = new_audio_data
-                        audio_extension = "mp3"
+                        audio_extension = new_audio_format
 
                     file_id = str(uuid.uuid4())
                     filename = f"VOICEVOX_{file_id}.{audio_extension}"
