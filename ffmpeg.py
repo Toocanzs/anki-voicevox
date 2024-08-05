@@ -2,14 +2,16 @@ from os.path import dirname, join, exists
 import os
 import stat
 import requests
-import json 
-from aqt.utils import showText
-from anki.utils import isMac, isWin, isLin
+import json
 from aqt import mw
 from anki.hooks import addHook
 import zipfile
 import subprocess
-import sys
+
+is_mac = sys.platform.startswith("darwin")
+is_win = sys.platform.startswith("win32")
+# also covers *BSD
+is_lin = not is_mac and not is_win
 
 class FFmpegInstaller:
     def __init__(self):
@@ -17,25 +19,25 @@ class FFmpegInstaller:
         self.can_convert = False
 
         self.ffmpeg_filename = "ffmpeg"
-        if isWin:
+        if is_win:
             self.ffmpeg_filename += ".exe"
-        
+
         self.full_ffmpeg_path = join(self.addonPath, self.ffmpeg_filename)
 
     def GetFFmpegIfNotExist(self):
         if exists(self.full_ffmpeg_path) or self.can_convert:
             self.can_convert = True
             return
-        
-        speakers_response = requests.get("https://ffbinaries.com/api/v1/version/4.4.1")
+
+        speakers_response = requests.get("https://ffbinaries.com/api/v1/version/6.1")
         download_url = None
         if speakers_response.status_code == 200:
             binaries_json = json.loads(speakers_response.content)
-            if isWin:
+            if is_win:
                 download_url = binaries_json['bin']['windows-64']['ffmpeg']
-            elif isLin:
+            elif is_lin:
                 download_url = binaries_json['bin']['linux-64']['ffmpeg']
-            elif isMac:
+            elif is_mac:
                 download_url = binaries_json['bin']['osx-64']['ffmpeg']
             else:
                 return
@@ -59,7 +61,7 @@ class FFmpegInstaller:
                 zf.extractall(dirname(self.full_ffmpeg_path))
             if exists(self.full_ffmpeg_path):
                 # Mark executable on platforms that need that
-                if not isWin:
+                if not is_win:
                     try:
                         st = os.stat(self.full_ffmpeg_path)
                         os.chmod(self.full_ffmpeg_path, st.st_mode | stat.S_IEXEC)
@@ -69,7 +71,6 @@ class FFmpegInstaller:
                 self.can_convert = True
         except:
             print("FFmpeg failed")
-    
 
 ffmpegInstaller = FFmpegInstaller()
 
@@ -78,7 +79,7 @@ def ConvertWavToMp3(wav_data):
         return None
     try:
         # If windows provide additional flags to subprocess.Popen
-        if isWin:
+        if is_win:
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         else:
@@ -91,6 +92,5 @@ def ConvertWavToMp3(wav_data):
     except Exception as e:
         print("VoiceVox conversion error:", e)
         return None
-
 
 addHook("profileLoaded", ffmpegInstaller.GetFFmpegIfNotExist)
