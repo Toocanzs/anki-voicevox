@@ -210,14 +210,19 @@ class MyDialog(qt.QDialog):
         self.preview_voice_button.clicked.connect(self.PreviewVoice)
         self.grid_layout.addWidget(self.preview_voice_button, 1, 4)
         
+        self.append_audio =  qt.QCheckBox("Append Audio")
+        append_audio_checked = config.get('append_audio') or "false"
+        self.append_audio.setChecked(True if append_audio_checked == "true" else False)
+        self.grid_layout.addWidget(self.append_audio, 2, 0)
+        
         self.cancel_button = qt.QPushButton("Cancel")
         self.generate_button = qt.QPushButton("Generate Audio")
         
         self.cancel_button.clicked.connect(self.reject)
         self.generate_button.clicked.connect(self.pre_accept)
         
-        self.grid_layout.addWidget(self.cancel_button, 2, 0, 1, 2)
-        self.grid_layout.addWidget(self.generate_button, 2, 3, 1, 2)
+        self.grid_layout.addWidget(self.cancel_button, 3, 0, 1, 2)
+        self.grid_layout.addWidget(self.generate_button, 3, 3, 1, 2)
         
                 
         def update_slider(slider, label, config_name, slider_desc):
@@ -236,8 +241,8 @@ class MyDialog(qt.QDialog):
         
         volume_slider.valueChanged.connect(update_slider(volume_slider, volume_label, 'volume_slider_value', 'Volume scale'))
 
-        self.grid_layout.addWidget(volume_label, 3, 0, 1, 2)
-        self.grid_layout.addWidget(volume_slider, 3, 3, 1, 2)
+        self.grid_layout.addWidget(volume_label, 4, 0, 1, 2)
+        self.grid_layout.addWidget(volume_slider, 4, 3, 1, 2)
         
         pitch_slider = QSlider(qt.Qt.Orientation.Horizontal)
         pitch_slider.setMinimum(-15)
@@ -248,8 +253,8 @@ class MyDialog(qt.QDialog):
         
         pitch_slider.valueChanged.connect(update_slider(pitch_slider, pitch_label, 'pitch_slider_value', 'Pitch scale'))
 
-        self.grid_layout.addWidget(pitch_label, 4, 0, 1, 2)
-        self.grid_layout.addWidget(pitch_slider, 4, 3, 1, 2)
+        self.grid_layout.addWidget(pitch_label, 5, 0, 1, 2)
+        self.grid_layout.addWidget(pitch_slider, 5, 3, 1, 2)
         
         speed_slider = QSlider(qt.Qt.Orientation.Horizontal)
         speed_slider.setMinimum(50)
@@ -260,8 +265,8 @@ class MyDialog(qt.QDialog):
         
         speed_slider.valueChanged.connect(update_slider(speed_slider, speed_label, 'speed_slider_value', 'Speed scale'))
 
-        self.grid_layout.addWidget(speed_label, 5, 0, 1, 2)
-        self.grid_layout.addWidget(speed_slider, 5, 3, 1, 2)
+        self.grid_layout.addWidget(speed_label, 6, 0, 1, 2)
+        self.grid_layout.addWidget(speed_slider, 6, 3, 1, 2)
         
         layout.addLayout(self.grid_layout)
 
@@ -365,6 +370,7 @@ def onVoicevoxOptionSelected(browser):
         config['last_destination_field'] = destination_field
         config['last_speaker_name'] = speaker_combo_text
         config['last_style_name'] = style_combo_text
+        config['append_audio'] = "true" if dialog.append_audio.isChecked() else "false"
         mw.addonManager.writeConfig(__name__, config)
 
         progress_window = qt.QWidget(None)
@@ -454,7 +460,10 @@ def onVoicevoxOptionSelected(browser):
 
                     audio_field_text = f"[sound:{filename}]"
                     note = mw.col.get_note(note_id)
-                    note[destination_field] = audio_field_text
+                    if config['append_audio'] == "true":
+                        note[destination_field] += audio_field_text
+                    else:
+                        note[destination_field] = audio_field_text
                     mw.col.update_note(note)
                     mw.app.processEvents()
                     notes_so_far += 1

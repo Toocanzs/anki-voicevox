@@ -42,8 +42,13 @@ class FFmpegInstaller:
         else:
             return
         
-        progress_win = mw.progress.start(immediate=True, label="Downloading FFmpeg...", min = 0)
-        progress_win.show()
+        can_show_progress = mw != None
+        if can_show_progress:
+            progress_win = mw.progress.start(immediate=True, label="Downloading FFmpeg...", min = 0)
+            if (progress_win == None):
+                can_show_progress = False
+            else:
+                progress_win.show()
         try:
             temp_file_path = join(self.addonPath, "ffmpeg.zip")
             # Download zip
@@ -55,12 +60,15 @@ class FFmpegInstaller:
                     for chunk in ffmpeg_request.iter_content(chunk_size=8192):
                         if chunk:
                             bytes_so_far += len(chunk)
-                            mw.progress.update(value=bytes_so_far, max=total_bytes)
+                            if can_show_progress:
+                                mw.progress.update(value=bytes_so_far, max=total_bytes)
                             ffmpeg_file.write(chunk)
-                        mw.app.processEvents()
+                        if can_show_progress:
+                            mw.app.processEvents()
             # Extract zip
             with zipfile.ZipFile(temp_file_path) as zf:
-                mw.progress.update(label="Extracting FFmpeg...")
+                if can_show_progress:
+                    mw.progress.update(label="Extracting FFmpeg...")
                 zf.extractall(dirname(self.full_ffmpeg_path))
             if exists(self.full_ffmpeg_path):
                 # Mark executable on platforms that need that
@@ -74,7 +82,8 @@ class FFmpegInstaller:
                 self.can_convert = True
         except:
             print("FFmpeg failed")
-        mw.progress.finish()
+        if can_show_progress:
+            mw.progress.finish()
     
 
 ffmpegInstaller = FFmpegInstaller()
