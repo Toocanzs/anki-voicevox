@@ -39,7 +39,7 @@ def getCommonFields(selected_notes):
     return common_fields
 def getSpeakersOrNone():
     try:
-        speakers_response = requests.get("http://127.0.0.1:50021/speakers")
+        speakers_response = requests.get("http://127.0.0.1:50021/speakers", timeout=5)
         if speakers_response.status_code == 200:
             print(speakers_response.content)
             return json.loads(speakers_response.content)
@@ -48,7 +48,7 @@ def getSpeakersOrNone():
     
 def getSpeakerInfo(speaker_uuid):
     try:
-        speakers_response = requests.get("http://127.0.0.1:50021/speaker_info?speaker_uuid=" + str(speaker_uuid))
+        speakers_response = requests.get("http://127.0.0.1:50021/speaker_info?speaker_uuid=" + str(speaker_uuid), timeout=5)
         if speakers_response.status_code == 200:
             print(speakers_response.content)
             return json.loads(speakers_response.content)
@@ -298,7 +298,7 @@ def GenerateAudioQuery(text_and_speaker_index_tuple, config):
     try:
         text = text_and_speaker_index_tuple[0]
         speaker_index = text_and_speaker_index_tuple[1]
-        audio_query_response = requests.post("http://127.0.0.1:50021/audio_query?speaker=" + str(speaker_index) + "&text=" + urllib.parse.quote(text, safe=''))
+        audio_query_response = requests.post("http://127.0.0.1:50021/audio_query?speaker=" + str(speaker_index) + "&text=" + urllib.parse.quote(text, safe=''), timeout=5)
         if audio_query_response.status_code != 200:
             raise Exception(f"Unable to generate audio for the following text: `{text}`. Response code was {audio_query_response.status_code}\nResponse:{audio_query_response.text}")
             
@@ -316,7 +316,7 @@ def GenerateAudioQuery(text_and_speaker_index_tuple, config):
         raise Exception(f"Unable to generate audio for the following text: `{text}`.\nResponse: {audio_query_response.text if audio_query_response is not None else 'None'}\n{traceback.format_exc()}")
 
 def SynthesizeAudio(audio_query_json, speaker_index):
-    synthesis_response = requests.post("http://127.0.0.1:50021/synthesis?speaker=" + str(speaker_index), data=audio_query_json)
+    synthesis_response = requests.post("http://127.0.0.1:50021/synthesis?speaker=" + str(speaker_index), data=audio_query_json, timeout=5)
     if synthesis_response.status_code != 200:
         return None
     return synthesis_response.content
@@ -328,7 +328,7 @@ def MultiSynthesizeAudio(audio_queries, speaker_index): # NOTE: This returns a z
     # Create json array of queries
     combined = b"[" + b','.join(audio_queries) + b"]"
 
-    synthesis_response = requests.post("http://127.0.0.1:50021/multi_synthesis?speaker=" + str(speaker_index), data=combined)
+    synthesis_response = requests.post("http://127.0.0.1:50021/multi_synthesis?speaker=" + str(speaker_index), data=combined, timeout=5)
     if synthesis_response.status_code != 200:
         return None
     return synthesis_response.content 
@@ -341,7 +341,7 @@ def DivideIntoChunks(array, n):
 def onVoicevoxOptionSelected(browser):
     voicevox_exists = False
     try:
-        response = requests.get("http://127.0.0.1:50021/version")
+        response = requests.get("http://127.0.0.1:50021/version", timeout=5)
         if response.status_code == 200:
             print(f"version: {response.content}")
             voicevox_exists = True
