@@ -3,11 +3,15 @@ import os
 import stat
 import requests
 import json
-from anki.utils import is_mac, is_win, is_lin
 from aqt import mw
 from anki.hooks import addHook
 import zipfile
 import subprocess
+
+is_mac = sys.platform.startswith("darwin")
+is_win = sys.platform.startswith("win32")
+# also covers *BSD
+is_lin = not is_mac and not is_win
 
 class FFmpegInstaller:
     def __init__(self):
