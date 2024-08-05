@@ -39,9 +39,7 @@ class FFmpegInstaller:
                 return
         else:
             return
-
-        progress_win = mw.progress.start(immediate=True, label="Downloading FFmpeg...", min = 0)
-        progress_win.show()
+        
         try:
             temp_file_path = join(self.addonPath, "ffmpeg.zip")
             # Download zip
@@ -53,12 +51,9 @@ class FFmpegInstaller:
                     for chunk in ffmpeg_request.iter_content(chunk_size=8192):
                         if chunk:
                             bytes_so_far += len(chunk)
-                            mw.progress.update(value=bytes_so_far, max=total_bytes)
                             ffmpeg_file.write(chunk)
-                        mw.app.processEvents()
             # Extract zip
             with zipfile.ZipFile(temp_file_path) as zf:
-                mw.progress.update(label="Extracting FFmpeg...")
                 zf.extractall(dirname(self.full_ffmpeg_path))
             if exists(self.full_ffmpeg_path):
                 # Mark executable on platforms that need that
@@ -72,24 +67,26 @@ class FFmpegInstaller:
                 self.can_convert = True
         except:
             print("FFmpeg failed")
-        mw.progress.finish()
-
 
 ffmpegInstaller = FFmpegInstaller()
 
 def ConvertWavToMp3(wav_data):
     if not ffmpegInstaller.can_convert:
         return None
-    # If windows provide additional flags to subprocess.Popen
-    if is_win:
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    else:
-        # On MacOS, subprocess.STARTUPINFO() does not exist
-        startupinfo = None
-    process = subprocess.Popen([ffmpegInstaller.full_ffmpeg_path, '-y', '-nostats', '-hide_banner', '-i', 'pipe:', '-f', 'mp3', "-qscale:a", "3", '-'], stdout = subprocess.PIPE, stderr = subprocess.PIPE, stdin = subprocess.PIPE, startupinfo=startupinfo)
-    output = process.communicate(input=wav_data)[0]
-    return output
-
+    try:
+        # If windows provide additional flags to subprocess.Popen
+        if is_win:
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        else:
+            # On MacOS, subprocess.STARTUPINFO() does not exist
+            startupinfo = None
+        
+        process = subprocess.Popen([ffmpegInstaller.full_ffmpeg_path, '-y', '-nostats', '-hide_banner', '-i', 'pipe:', '-f', 'mp3', "-qscale:a", "3", '-'], stdout = subprocess.PIPE, stderr = subprocess.PIPE, stdin = subprocess.PIPE, startupinfo=startupinfo)
+        output = process.communicate(input=wav_data)[0]
+        return output
+    except Exception as e:
+        print("VoiceVox conversion error:", e)
+        return None
 
 addHook("profileLoaded", ffmpegInstaller.GetFFmpegIfNotExist)
