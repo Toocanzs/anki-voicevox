@@ -373,39 +373,26 @@ class MyDialog(qt.QDialog):
         
         return (note_text, speaker_index)
 
-    def PreviewVoiceSample(self):
+    def PreviewVoice(self, sample=True):
         (speaker_index, speaker, style_info) = getSpeaker(self.speakers, self.speaker_combo, self.style_combo)
         if speaker_index is None:
-            raise Exception('getSpeaker returned None in PreviewVoiceSample')
-            
-        preview_sentences = ["こんにちは、これはテスト文章です。", "ＤＶＤの再生ボタンを押して、書斎に向かった。", "さてと 、 ご馳走様でした", "真似しないでくれる？", "な 、 なんだよ ？　 テンション高いな"]
-            
-        tup = (random.choice(preview_sentences), speaker_index)
+            raise Exception('getSpeaker returned None in preview_voice')
+
+        if sample:
+            preview_sentences = ["こんにちは、これはテスト文章です。", "ＤＶＤの再生ボタンを押して、書斎に向かった。", "さてと 、 ご馳走様でした", "真似しないでくれる？", "な 、 なんだよ ？　 テンション高いな"]
+            text = random.choice(preview_sentences)
+        else:
+            if not self.selected_notes:
+                return
+            # If we've gone past the last note, restart from 0
+            if self.preview_note_index >= len(self.selected_notes):
+                self.preview_note_index = 0
+            note_id = self.selected_notes[self.preview_note_index]
+            text, speaker_index = self.getNoteTextAndSpeaker(note_id)
+            self.preview_note_index += 1
+
+        tup = (text, speaker_index)
         result = GenerateAudioQuery(tup, mw.addonManager.getConfig(__name__))
-        contents = SynthesizeAudio(result, speaker_index)
-        
-        addon_path = dirname(__file__)
-        preivew_path = join(addon_path, "VOICEVOX_preview.wav")
-        with open(preivew_path, "wb") as f:
-            f.write(contents)
-        av_player.play_file(preivew_path)
-
-    def PreviewVoiceActual(self):
-        if not self.selected_notes:
-            return
-        (speaker_index, speaker, style_info) = getSpeaker(self.speakers, self.speaker_combo, self.style_combo)
-        if speaker_index is None:
-            raise Exception('getSpeaker returned None in PreviewVoiceActual')
-
-        # If we've gone past the last note, restart from 0
-        if self.preview_note_index >= len(self.selected_notes):
-            self.preview_note_index = 0
-
-        note_id = self.selected_notes[self.preview_note_index]
-        config = mw.addonManager.getConfig(__name__)
-        tup = self.getNoteTextAndSpeaker(note_id)
-
-        result = GenerateAudioQuery(tup, config)
         contents = SynthesizeAudio(result, speaker_index)
 
         addon_path = dirname(__file__)
@@ -414,7 +401,11 @@ class MyDialog(qt.QDialog):
             f.write(contents)
         av_player.play_file(preview_path)
 
-        self.preview_note_index += 1
+    def PreviewVoiceSample(self):
+        self.PreviewVoice(sample=True)
+
+    def PreviewVoiceActual(self):
+        self.PreviewVoice(sample=False)
 
 def GenerateAudioQuery(text_and_speaker_index_tuple, config):
     try:
