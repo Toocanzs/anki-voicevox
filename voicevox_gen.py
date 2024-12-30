@@ -1,4 +1,4 @@
-from aqt.qt import QComboBox, QHBoxLayout, QLabel, QPushButton, QApplication, QMessageBox, QSlider
+from aqt.qt import QComboBox, QHBoxLayout, QLabel, QPushButton, QApplication, QMessageBox, QSlider, QLineEdit, QToolButton, QIcon
 from aqt import browser, gui_hooks, qt
 from aqt import mw
 from aqt.sound import av_player
@@ -17,6 +17,7 @@ from . import ffmpeg
 import traceback
 import re, html
 import json
+import datetime
 
 VOICEVOX_CONFIG_NAME = "VOICEVOX_CONFIG"
 
@@ -81,6 +82,33 @@ def getSpeaker(speakers, speaker_combo, style_combo):
     speaker_id = style_info[1]
     return (speaker_id, speaker, style_info)
 
+def parse_filename_template(template: str, placeholders: dict) -> str:
+    """
+    Replaces placeholders of form {{...}} in the template with corresponding values.
+    Example placeholders:
+      {{uid}}, {{speaker}}, {{style}}, {{deck}}, {{deck-full}}, {{date}}, {{field:Foo}}
+    """
+    # For safety, let's keep a local copy
+    result = template
+
+    # Find all occurrences of {{xyz}}
+    all_placeholders = re.findall(r"{{(.*?)}}", template)
+    for ph in all_placeholders:
+        # For field placeholders: "field:myFieldName"
+        if ph.startswith("field:"):
+            field_name = ph[len("field:"):]
+            if field_name in placeholders.get("fields", {}):
+                val = placeholders["fields"][field_name]
+            else:
+                val = ""  # If field not found, replace with empty
+            result = result.replace(f"{{{{field:{field_name}}}}}", val)
+        else:
+            # Normal placeholders
+            val = placeholders.get(ph, "")
+            result = result.replace(f"{{{{{ph}}}}}", val)
+
+    return result
+
 class MyDialog(qt.QDialog):
     def __init__(self, browser, parent=None) -> None:
         super().__init__(parent)
@@ -114,7 +142,7 @@ class MyDialog(qt.QDialog):
                 if "expression" == field.lower() or "sentence" == field.lower():
                     source_field_index = i
             elif field == last_source_field:
-                    source_field_index = i
+                source_field_index = i
             
             if last_destination_field is None:
                 if "audio" == field.lower():
@@ -197,7 +225,7 @@ class MyDialog(qt.QDialog):
             if style_item == last_style_name:
                 style_combo_index = i
                 break
-                i += 1
+            i += 1
 
         self.speaker_combo.setCurrentIndex(speaker_combo_index)
         self.style_combo.setCurrentIndex(style_combo_index) # NOTE: The previous style should probably be stored as a tuple with the speaker, but this is good enough. IE. Person A style X is not the same as Person B style X
@@ -219,23 +247,97 @@ class MyDialog(qt.QDialog):
         use_opus_checked = config.get('use_opus') or "false"
         self.use_opus.setChecked(True if use_opus_checked == "true" else False)
         self.grid_layout.addWidget(self.use_opus, 2, 1)
+
+        # Filename template
+        self.grid_layout.addWidget(qt.QLabel("Filename: "), 3, 0)
         
+        self.filename_template_edit = QLineEdit()
+        default_template = config.get('filename_template') or "VOICEVOX_{{speaker}}_{{style}}_{{uid}}"
+        self.filename_template_edit.setText(default_template)
+        self.filename_template_edit.setToolTip(
+            "Use placeholders like {{uid}}, {{speaker}}, {{style}}, {{deck}}, {{deck-full}}, {{date}}, or {{field:<fieldName>}}.\n"
+            "Example: VOICEVOX_{{speaker}}_{{style}}_{{field:Card ID}}.mp3\n"
+            "If you omit {{uid}}, files may clash unless other placeholders ensure uniqueness."
+        )
+        
+        self.grid_layout.addWidget(self.filename_template_edit, 3, 1, 1, 3)
+        
+        # "?" Button for help
+        self.help_button = QToolButton()
+        self.help_button.setText("?")
+        self.help_button.setToolTip(
+            "Possible placeholders:\n"
+            "  {{uid}} - random unique identifier\n"
+            "  {{speaker}} - speaker name\n"
+            "  {{style}} - speaking style\n"
+            "  {{deck}} - card deck name\n"
+            "  {{deck-full}} - full card deck name, including parent deck hierarchy\n"
+            "  {{date}} - current date in ISO format\n"
+            "  {{field:<fieldName>}} - replaces with note field content\n\n"
+            "Example: VOICEVOX_{{speaker}}_{{style}}_{{field:ID}}_{{uid}}"
+        )
+        self.grid_layout.addWidget(self.help_button, 3, 4)
+
+        # Warning icon if {{uid}} is missing
+        self.uid_warning_label = QLabel()
+        self.uid_warning_label.setToolTip("Warning: Without {{uid}}, you might get file name collisions. Each generated audio must have a globally unique name.")
+        # Use some built-in icon or text: exclamation triangle
+        self.uid_warning_label.setPixmap(self.style().standardIcon(qt.QStyle.StandardPixmap.SP_MessageBoxWarning).pixmap(16,16))
+        self.uid_warning_label.setVisible(False)
+        self.grid_layout.addWidget(self.uid_warning_label, 3, 5)
+
+        # Red border if invalid placeholders
+        def validate_template():
+            t = self.filename_template_edit.text()
+            # If we find placeholders not recognized: we won't parse them now with a big logic,
+            # but let's warn if we see something that doesn't match recognized patterns.
+            # For simplicity, only check for missing 'uid' for now, or obviously invalid placeholders.
+            has_uid = "{{uid}}" in t
+            self.uid_warning_label.setVisible(not has_uid)
+
+            # Check for well-formed placeholders (all must be either "uid", "speaker", "style", "deck", "date", or "field:")
+            # We'll just do a quick check: anything that doesn't start with field: or match known placeholders is suspect.
+            # This is a mild approach; you can expand if needed.
+            found_placeholders = re.findall(r"{{(.*?)}}", t)
+            invalids = []
+            for ph in found_placeholders:
+                if ph not in ["uid", "speaker", "style", "deck", "deck-full", "date"] and not ph.startswith("field:"):
+                    invalids.append(ph)
+                elif ph.startswith("field:"):
+                    field_name = ph[len("field:"):].strip()
+                    if field_name not in common_fields:
+                        invalids.append(ph)
+            
+            if invalids:
+                self.filename_template_edit.setStyleSheet("border: 1px solid red;")
+                self.filename_template_edit.setToolTip(
+                    f"Invalid placeholder(s) detected: {', '.join(invalids)}\n"
+                    "Valid placeholders: uid, speaker, style, deck, deck-full, date, field:<fieldName>"
+                )
+            else:
+                self.filename_template_edit.setStyleSheet("")
+                self.filename_template_edit.setToolTip(
+                    "Use placeholders like {{uid}}, {{speaker}}, {{style}}, {{deck}}, {{deck-full}}, {{date}}, or {{field:<fieldName>}}."
+                )
+
+        self.filename_template_edit.textChanged.connect(validate_template)
+        validate_template()
+
         self.cancel_button = qt.QPushButton("Cancel")
         self.generate_button = qt.QPushButton("Generate Audio")
         
         self.cancel_button.clicked.connect(self.reject)
         self.generate_button.clicked.connect(self.pre_accept)
         
-        self.grid_layout.addWidget(self.cancel_button, 3, 0, 1, 2)
-        self.grid_layout.addWidget(self.generate_button, 3, 3, 1, 2)
+        self.grid_layout.addWidget(self.cancel_button, 4, 0, 1, 2)
+        self.grid_layout.addWidget(self.generate_button, 4, 3, 1, 2)
         
-                
         def update_slider(slider, label, config_name, slider_desc):
             def update_this_slider(value):
                 label.setText(f'{slider_desc} {slider.value() / 100}')
                 config[config_name] = slider.value()
                 mw.addonManager.writeConfig(__name__, config)
-            return update_this_slider;
+            return update_this_slider
         
         volume_slider = QSlider(qt.Qt.Orientation.Horizontal)
         volume_slider.setMinimum(0)
@@ -246,8 +348,8 @@ class MyDialog(qt.QDialog):
         
         volume_slider.valueChanged.connect(update_slider(volume_slider, volume_label, 'volume_slider_value', 'Volume scale'))
 
-        self.grid_layout.addWidget(volume_label, 4, 0, 1, 2)
-        self.grid_layout.addWidget(volume_slider, 4, 3, 1, 2)
+        self.grid_layout.addWidget(volume_label, 5, 0, 1, 2)
+        self.grid_layout.addWidget(volume_slider, 5, 3, 1, 2)
         
         pitch_slider = QSlider(qt.Qt.Orientation.Horizontal)
         pitch_slider.setMinimum(-15)
@@ -258,8 +360,8 @@ class MyDialog(qt.QDialog):
         
         pitch_slider.valueChanged.connect(update_slider(pitch_slider, pitch_label, 'pitch_slider_value', 'Pitch scale'))
 
-        self.grid_layout.addWidget(pitch_label, 5, 0, 1, 2)
-        self.grid_layout.addWidget(pitch_slider, 5, 3, 1, 2)
+        self.grid_layout.addWidget(pitch_label, 6, 0, 1, 2)
+        self.grid_layout.addWidget(pitch_slider, 6, 3, 1, 2)
         
         speed_slider = QSlider(qt.Qt.Orientation.Horizontal)
         speed_slider.setMinimum(50)
@@ -270,8 +372,8 @@ class MyDialog(qt.QDialog):
         
         speed_slider.valueChanged.connect(update_slider(speed_slider, speed_label, 'speed_slider_value', 'Speed scale'))
 
-        self.grid_layout.addWidget(speed_label, 6, 0, 1, 2)
-        self.grid_layout.addWidget(speed_slider, 6, 3, 1, 2)
+        self.grid_layout.addWidget(speed_label, 7, 0, 1, 2)
+        self.grid_layout.addWidget(speed_slider, 7, 3, 1, 2)
 
         # Intonation slider
         intonation_slider = QSlider(qt.Qt.Orientation.Horizontal)
@@ -283,8 +385,8 @@ class MyDialog(qt.QDialog):
         
         intonation_slider.valueChanged.connect(update_slider(intonation_slider, intonation_label, 'intonation_slider_value', 'Intonation scale'))
 
-        self.grid_layout.addWidget(intonation_label, 7, 0, 1, 2)
-        self.grid_layout.addWidget(intonation_slider, 7, 3, 1, 2)
+        self.grid_layout.addWidget(intonation_label, 8, 0, 1, 2)
+        self.grid_layout.addWidget(intonation_slider, 8, 3, 1, 2)
 
         # Initial silence slider
         initial_silence_slider = QSlider(qt.Qt.Orientation.Horizontal)
@@ -296,8 +398,8 @@ class MyDialog(qt.QDialog):
 
         initial_silence_slider.valueChanged.connect(update_slider(initial_silence_slider, initial_silence_label, 'initial_silence_slider_value', 'Initial silence scale'))
 
-        self.grid_layout.addWidget(initial_silence_label, 8, 0, 1, 2)
-        self.grid_layout.addWidget(initial_silence_slider, 8, 3, 1, 2)
+        self.grid_layout.addWidget(initial_silence_label, 9, 0, 1, 2)
+        self.grid_layout.addWidget(initial_silence_slider, 9, 3, 1, 2)
 
         # Final silence slider
         final_silence_slider = QSlider(qt.Qt.Orientation.Horizontal)
@@ -309,8 +411,8 @@ class MyDialog(qt.QDialog):
 
         final_silence_slider.valueChanged.connect(update_slider(final_silence_slider, final_silence_label, 'final_silence_slider_value', 'Final silence scale'))
 
-        self.grid_layout.addWidget(final_silence_label, 9, 0, 1, 2)
-        self.grid_layout.addWidget(final_silence_slider, 9, 3, 1, 2)
+        self.grid_layout.addWidget(final_silence_label, 10, 0, 1, 2)
+        self.grid_layout.addWidget(final_silence_slider, 10, 3, 1, 2)
         
         layout.addLayout(self.grid_layout)
 
@@ -413,6 +515,7 @@ def onVoicevoxOptionSelected(browser):
 
         speaker_combo_text = dialog.speaker_combo.itemText(dialog.speaker_combo.currentIndex())
         style_combo_text = dialog.style_combo.itemText(dialog.style_combo.currentIndex())
+        user_template = dialog.filename_template_edit.text()
 
         # Save previously used stuff
         config = mw.addonManager.getConfig(__name__)
@@ -422,6 +525,8 @@ def onVoicevoxOptionSelected(browser):
         config['last_style_name'] = style_combo_text
         config['append_audio'] = "true" if dialog.append_audio.isChecked() else "false"
         config['use_opus'] = "true" if dialog.use_opus.isChecked() else "false"
+        config['filename_template'] = user_template
+
         mw.addonManager.writeConfig(__name__, config)
 
         progress_window = qt.QWidget(None)
@@ -463,6 +568,13 @@ def onVoicevoxOptionSelected(browser):
             progress_bar.setMaximum(total_notes)
             progress_bar.setValue(notes_so_far)
             mw.app.processEvents()
+        def sanitize_filename(filename: str, replacement: str = "_") -> str:
+            # Replace problematic characters with a replacement character
+            sanitized = re.sub(r'[<>:"/\\|?*]', replacement, filename)
+            # Strip leading and trailing whitespaces and dots (Windows hates these)
+            sanitized = sanitized.strip().strip(".")
+            # Limit filename length to something reasonable (255 is typical for most filesystems)
+            return sanitized[:255]
 
         # We split the work into chunks so we can pass a bunch of audio queries to the synthesizer instead of doing them one at time, but we don't want to do all of them at once so chunks make the most sense
         CHUNK_SIZE = 4
@@ -470,7 +582,10 @@ def onVoicevoxOptionSelected(browser):
         notes_so_far = 0
         total_notes = len(dialog.selected_notes)
         updateProgress(notes_so_far, total_notes)
-        
+
+        # Pre-cache user template for performance
+        filename_template = config.get("filename_template", "VOICEVOX_{{speaker}}_{{style}}_{{uid}}")
+
         for note_chunk in note_chunks:
             note_text_and_speakers = map(getNoteTextAndSpeaker, note_chunk)
             updateProgress(notes_so_far, total_notes, f"Audio Query: {0}/{len(note_chunk)}")
@@ -503,8 +618,31 @@ def onVoicevoxOptionSelected(browser):
                         audio_data = new_audio_data
                         audio_extension = new_audio_format
 
-                    file_id = str(uuid.uuid4())
-                    filename = f"VOICEVOX_{file_id}.{audio_extension}"
+                    # Build placeholders
+                    note_obj = mw.col.get_note(note_id)
+                    fields_map = {f: note_obj[f] for f in note_obj.keys()}
+                    cards_of_note = note_obj.cards()
+                    if cards_of_note:
+                        deck_id = cards_of_note[0].did
+                        deck_name = mw.col.decks.name(deck_id)
+                    else:
+                        deck_name = "UnknownDeck"
+
+                    placeholders = {
+                        "uid": str(uuid.uuid4()),
+                        "speaker": speaker_combo_text,
+                        "style": style_combo_text,
+                        "deck": deck_name.split("::")[-1],
+                        "deck-full": deck_name,
+                        "date": datetime.datetime.now().date().isoformat(),
+                        "fields": fields_map
+                    }
+
+                    raw_filename = parse_filename_template(filename_template, placeholders)
+                    raw_filename = sanitize_filename(raw_filename)
+                    # We'll add the final extension here
+                    filename = f"{raw_filename}.{audio_extension}"
+
                     audio_full_path = join(media_dir, filename)
 
                     with open(audio_full_path, "wb") as f:
