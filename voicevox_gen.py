@@ -463,6 +463,13 @@ def onVoicevoxOptionSelected(browser):
             progress_bar.setMaximum(total_notes)
             progress_bar.setValue(notes_so_far)
             mw.app.processEvents()
+        def sanitize_filename(filename: str, replacement: str = "_") -> str:
+            # Replace problematic characters with a replacement character
+            sanitized = re.sub(r'[<>:"/\\|?*]', replacement, filename)
+            # Strip leading and trailing whitespaces and dots (Windows hates these)
+            sanitized = sanitized.strip().strip(".")
+            # Limit filename length to something reasonable (255 is typical for most filesystems)
+            return sanitized[:255]
 
         # We split the work into chunks so we can pass a bunch of audio queries to the synthesizer instead of doing them one at time, but we don't want to do all of them at once so chunks make the most sense
         CHUNK_SIZE = 4
@@ -503,8 +510,9 @@ def onVoicevoxOptionSelected(browser):
                         audio_data = new_audio_data
                         audio_extension = new_audio_format
 
+                    speaker_name = speaker_combo_text
                     file_id = str(uuid.uuid4())
-                    filename = f"VOICEVOX_{file_id}.{audio_extension}"
+                    filename = sanitize_filename(f"VOICEVOX_{speaker_name}_{file_id}.{audio_extension}")
                     audio_full_path = join(media_dir, filename)
 
                     with open(audio_full_path, "wb") as f:
