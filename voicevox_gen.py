@@ -139,7 +139,7 @@ class MyDialog(qt.QDialog):
         i = 0
         for field in common_fields:
             if last_source_field is None:
-                if "expression" == field.lower() or "sentence" == field.lower():
+                if "expression" == field.lower() or "sentence" == field.lower() or "front" == field.lower():
                     source_field_index = i
             elif field == last_source_field:
                 source_field_index = i
