@@ -233,11 +233,35 @@ class MyDialog(qt.QDialog):
         self.grid_layout.addWidget(qt.QLabel("Style: "), 1, 2)
         self.grid_layout.addWidget(self.style_combo, 1, 3)
 
-        self.preview_voice_button = qt.QPushButton("Preview Voice", self)
-        
-        self.preview_voice_button.clicked.connect(self.PreviewVoice)
-        self.grid_layout.addWidget(self.preview_voice_button, 1, 4)
-        
+        # Keep track of the current note index for previewing actual content
+        self.preview_note_index = 0
+        def resetPreviewIndex(*args):
+            self.preview_note_index = 0
+
+        def voiceValueChanged(*args):
+            resetPreviewIndex(*args)
+
+        # Connect the voice value changed signals
+        self.speaker_combo.currentIndexChanged.connect(voiceValueChanged)
+        self.style_combo.currentIndexChanged.connect(voiceValueChanged)
+        self.source_combo.currentIndexChanged.connect(voiceValueChanged)
+
+        preview_layout = qt.QHBoxLayout()
+        label = QLabel("Preview Voice")
+        preview_layout.addWidget(label)
+
+        self.preview_voice_button_sample = qt.QPushButton("🎲", self)
+        self.preview_voice_button_sample.setToolTip("Preview a random sample sentence")
+        self.preview_voice_button_sample.clicked.connect(self.PreviewVoiceSample)
+        preview_layout.addWidget(self.preview_voice_button_sample)
+
+        self.preview_voice_button_actual = qt.QPushButton("🗂️", self)
+        self.preview_voice_button_actual.setToolTip("Preview the source field\n\nRepeated clicks cycle through each note.")
+        self.preview_voice_button_actual.clicked.connect(self.PreviewVoiceActual)
+        preview_layout.addWidget(self.preview_voice_button_actual)
+
+        self.grid_layout.addLayout(preview_layout, 1, 4)
+
         self.append_audio =  qt.QCheckBox("Append Audio")
         append_audio_checked = config.get('append_audio') or "false"
         self.append_audio.setChecked(True if append_audio_checked == "true" else False)
@@ -347,6 +371,7 @@ class MyDialog(qt.QDialog):
         volume_label = QLabel(f'Volume scale {volume_slider.value() / 100}')
         
         volume_slider.valueChanged.connect(update_slider(volume_slider, volume_label, 'volume_slider_value', 'Volume scale'))
+        volume_slider.valueChanged.connect(voiceValueChanged)
 
         self.grid_layout.addWidget(volume_label, 5, 0, 1, 2)
         self.grid_layout.addWidget(volume_slider, 5, 3, 1, 2)
@@ -359,6 +384,7 @@ class MyDialog(qt.QDialog):
         pitch_label = QLabel(f'Pitch scale {pitch_slider.value() / 100}')
         
         pitch_slider.valueChanged.connect(update_slider(pitch_slider, pitch_label, 'pitch_slider_value', 'Pitch scale'))
+        pitch_slider.valueChanged.connect(voiceValueChanged)
 
         self.grid_layout.addWidget(pitch_label, 6, 0, 1, 2)
         self.grid_layout.addWidget(pitch_slider, 6, 3, 1, 2)
@@ -371,6 +397,7 @@ class MyDialog(qt.QDialog):
         speed_label = QLabel(f'Speed scale {speed_slider.value() / 100}')
         
         speed_slider.valueChanged.connect(update_slider(speed_slider, speed_label, 'speed_slider_value', 'Speed scale'))
+        speed_slider.valueChanged.connect(voiceValueChanged)
 
         self.grid_layout.addWidget(speed_label, 7, 0, 1, 2)
         self.grid_layout.addWidget(speed_slider, 7, 3, 1, 2)
@@ -384,6 +411,7 @@ class MyDialog(qt.QDialog):
         intonation_label = QLabel(f'Intonation scale {intonation_slider.value() / 100}')
         
         intonation_slider.valueChanged.connect(update_slider(intonation_slider, intonation_label, 'intonation_slider_value', 'Intonation scale'))
+        intonation_slider.valueChanged.connect(voiceValueChanged)
 
         self.grid_layout.addWidget(intonation_label, 8, 0, 1, 2)
         self.grid_layout.addWidget(intonation_slider, 8, 3, 1, 2)
@@ -397,6 +425,7 @@ class MyDialog(qt.QDialog):
         initial_silence_label = QLabel(f'Initial silence scale {initial_silence_slider.value() / 100}')
 
         initial_silence_slider.valueChanged.connect(update_slider(initial_silence_slider, initial_silence_label, 'initial_silence_slider_value', 'Initial silence scale'))
+        initial_silence_slider.valueChanged.connect(voiceValueChanged)
 
         self.grid_layout.addWidget(initial_silence_label, 9, 0, 1, 2)
         self.grid_layout.addWidget(initial_silence_slider, 9, 3, 1, 2)
@@ -410,6 +439,7 @@ class MyDialog(qt.QDialog):
         final_silence_label = QLabel(f'Final silence length {final_silence_slider.value() / 100}')
 
         final_silence_slider.valueChanged.connect(update_slider(final_silence_slider, final_silence_label, 'final_silence_slider_value', 'Final silence scale'))
+        final_silence_slider.valueChanged.connect(voiceValueChanged)
 
         self.grid_layout.addWidget(final_silence_label, 10, 0, 1, 2)
         self.grid_layout.addWidget(final_silence_slider, 10, 3, 1, 2)
@@ -424,10 +454,31 @@ class MyDialog(qt.QDialog):
             QMessageBox.critical(mw, "Error", f"The chosen source field '{source_text}' is the same as the destination field '{destination_text}'.\nThis would overwrite the field you're reading from.\n\nTypically you want to read from a field like 'sentence' and output to 'audio', but in this case you're trying to read from 'sentence' and write to 'sentence' which cause your sentence to be overwritten")
         else:
             self.accept()
-    def PreviewVoice(self):
+
+    def getNoteTextAndSpeaker(self, note_id):
+        (speaker_index, speaker, style_info) = getSpeaker(self.speakers, self.speaker_combo, self.style_combo)
+        source_field = self.source_combo.itemText(self.source_combo.currentIndex())
+        note = mw.col.get_note(note_id)
+        note_text = note[source_field]
+
+        # Remove html tags https://stackoverflow.com/a/19730306
+        tag_re = re.compile(r'(<!--.*?-->|<[^>]*>)')
+        entity_re = re.compile(r'(&[^;]+;)')
+
+        note_text = entity_re.sub('', note_text)
+        note_text = tag_re.sub('', note_text)
+
+        # Remove stuff between brackets. Usually japanese cards have pitch accent and reading info in brackets like 「 タイトル[;a,h] を 聞[き,きく;h]いた わけ[;a] じゃ ない[;a] ！」
+        if self.ignore_brackets_checkbox.isChecked():
+            note_text = re.sub("\[.*?\]", "", note_text)
+        note_text = re.sub(" ", "", note_text) # there's a lot of spaces for whatever reason which throws off the voice gen so we remove all spaces (japanese doesn't care about them anyway)
+        
+        return (note_text, speaker_index)
+
+    def PreviewVoiceSample(self):
         (speaker_index, speaker, style_info) = getSpeaker(self.speakers, self.speaker_combo, self.style_combo)
         if speaker_index is None:
-            raise Exception('getSpeaker returned None in PreviewVoice')
+            raise Exception('getSpeaker returned None in PreviewVoiceSample')
             
         preview_sentences = ["こんにちは、これはテスト文章です。", "ＤＶＤの再生ボタンを押して、書斎に向かった。", "さてと 、 ご馳走様でした", "真似しないでくれる？", "な 、 なんだよ ？　 テンション高いな"]
             
@@ -440,6 +491,33 @@ class MyDialog(qt.QDialog):
         with open(preivew_path, "wb") as f:
             f.write(contents)
         av_player.play_file(preivew_path)
+
+    def PreviewVoiceActual(self):
+        if not self.selected_notes:
+            return
+        (speaker_index, speaker, style_info) = getSpeaker(self.speakers, self.speaker_combo, self.style_combo)
+        if speaker_index is None:
+            raise Exception('getSpeaker returned None in PreviewVoiceActual')
+
+        # If we've gone past the last note, restart from 0
+        if self.preview_note_index >= len(self.selected_notes):
+            self.preview_note_index = 0
+
+        note_id = self.selected_notes[self.preview_note_index]
+        config = mw.addonManager.getConfig(__name__)
+        tup = self.getNoteTextAndSpeaker(note_id)
+
+        result = GenerateAudioQuery(tup, config)
+        contents = SynthesizeAudio(result, speaker_index)
+
+        addon_path = dirname(__file__)
+        preview_path = join(addon_path, "VOICEVOX_preview.wav")
+        with open(preview_path, "wb") as f:
+            f.write(contents)
+        av_player.play_file(preview_path)
+
+        self.preview_note_index += 1
+
 def GenerateAudioQuery(text_and_speaker_index_tuple, config):
     try:
         text = text_and_speaker_index_tuple[0]
@@ -546,23 +624,6 @@ def onVoicevoxOptionSelected(browser):
         progress_window.show()
         progress_window.setFocus()
 
-        def getNoteTextAndSpeaker(note_id):
-            note = mw.col.get_note(note_id)
-            note_text = note[source_field]
-
-            # Remove html tags https://stackoverflow.com/a/19730306
-            tag_re = re.compile(r'(<!--.*?-->|<[^>]*>)')
-            entity_re = re.compile(r'(&[^;]+;)')
-
-            note_text = entity_re.sub('', note_text)
-            note_text = tag_re.sub('', note_text)
-
-            # Remove stuff between brackets. Usually japanese cards have pitch accent and reading info in brackets like 「 タイトル[;a,h] を 聞[き,きく;h]いた わけ[;a] じゃ ない[;a] ！」
-            if dialog.ignore_brackets_checkbox.isChecked():
-                note_text = re.sub("\[.*?\]", "", note_text)
-            note_text = re.sub(" ", "", note_text) # there's a lot of spaces for whatever reason which throws off the voice gen so we remove all spaces (japanese doesn't care about them anyway)
-            
-            return (note_text, speaker_index)
         def updateProgress(notes_so_far, total_notes, bottom_text = ''):
             progress_text.setText(f"Generating Audio {notes_so_far}/{total_notes}\n{bottom_text}")
             progress_bar.setMaximum(total_notes)
@@ -587,7 +648,7 @@ def onVoicevoxOptionSelected(browser):
         filename_template = config.get("filename_template", "VOICEVOX_{{speaker}}_{{style}}_{{uid}}")
 
         for note_chunk in note_chunks:
-            note_text_and_speakers = map(getNoteTextAndSpeaker, note_chunk)
+            note_text_and_speakers = map(dialog.getNoteTextAndSpeaker, note_chunk)
             updateProgress(notes_so_far, total_notes, f"Audio Query: {0}/{len(note_chunk)}")
             query_count = 0
             def GenerateQueryAndUpdateProgress(x, query_count):
