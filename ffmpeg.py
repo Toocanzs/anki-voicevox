@@ -8,6 +8,7 @@ from anki.hooks import addHook
 import zipfile
 import subprocess
 import sys
+import shutil
 
 is_mac = sys.platform.startswith("darwin")
 is_win = sys.platform.startswith("win32")
@@ -27,6 +28,13 @@ class FFmpegInstaller:
 
     def GetFFmpegIfNotExist(self):
         if exists(self.full_ffmpeg_path) or self.can_convert:
+            self.can_convert = True
+            return
+        
+        # check if there is a system wide ffmpeg installed
+        system_ffmpeg_path = shutil.which("ffmpeg")
+        if system_ffmpeg_path:
+            self.full_ffmpeg_path = system_ffmpeg_path
             self.can_convert = True
             return
 
