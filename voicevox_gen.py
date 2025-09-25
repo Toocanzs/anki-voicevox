@@ -488,6 +488,39 @@ class MyDialog(qt.QDialog):
         layout.addLayout(self.grid_layout)
 
         self.setLayout(layout)
+
+        self._load_preset_names()
+
+        self.save_preset_button.clicked.connect(self._save_preset)
+        self.rename_preset_button.clicked.connect(self._rename_preset)
+        self.delete_preset_button.clicked.connect(self._delete_preset)
+        self.preset_combo.currentIndexChanged.connect(self._load_preset)
+
+
+    def _load_preset_names(self):
+        """Load presets from config and populate the dropdown."""
+        pass
+
+    def _save_preset(self):
+        """Handle the 'Save' button click."""
+        pass
+
+    def _rename_preset(self):
+        """Handle the 'Rename' button click."""
+        pass
+
+    def _delete_preset(self):
+        """Handle the 'Delete' button click."""
+        pass
+
+    def _load_preset(self):
+        """Apply the selected preset's settings to the UI."""
+        pass
+
+    def _get_current_settings(self):
+        """Gathers the current UI settings into a dictionary."""
+        pass
+
     def pre_accept(self):
         if self.source_combo.currentIndex() == self.destination_combo.currentIndex():
             source_text = self.source_combo.itemText(self.source_combo.currentIndex())
