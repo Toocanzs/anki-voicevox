@@ -129,6 +129,47 @@ class MyDialog(qt.QDialog):
         elif len(common_fields) == 1:
             QMessageBox.critical(mw, "Error", f"The chosen notes only share a single field in common '{list(common_fields)[0]}'. This would leave no field to put the generated audio without overwriting the sentence data")
 
+        # Preset management UI
+        preset_layout = qt.QHBoxLayout()
+
+        # The label for the preset dropdown.
+        preset_label = qt.QLabel("Preset:")
+
+        # The preset dropdown menu. It expands to fill available space.
+        self.preset_combo = qt.QComboBox()
+        self.preset_combo.setToolTip("Select a preset")
+
+        # Create all the buttons for the preset UI and set their fixed width using a local variable.
+        preset_button_width = 100
+        self.save_preset_button = qt.QPushButton("Save")
+        self.save_preset_button.setToolTip("Save current settings as a new preset")
+        self.save_preset_button.setFixedWidth(preset_button_width)
+        
+        self.rename_preset_button = qt.QPushButton("Rename")
+        self.rename_preset_button.setToolTip("Rename current preset")
+        self.rename_preset_button.setFixedWidth(preset_button_width)
+
+        self.delete_preset_button = qt.QPushButton("Delete")
+        self.delete_preset_button.setToolTip("Delete current preset")
+        self.delete_preset_button.setFixedWidth(preset_button_width)
+
+        # Add all widgets to the layout
+        preset_layout.addWidget(preset_label)
+        preset_layout.addWidget(self.preset_combo, 1) # Add a stretch factor of 1 to the combo box
+        
+        # A fixed-width spacer to maintain a gap between the combo box and buttons.
+        preset_layout.addSpacing(20)
+        
+        # An expanding space that pushes the following widgets to the right.
+        preset_layout.addStretch()
+        
+        preset_layout.addWidget(self.save_preset_button)
+        preset_layout.addWidget(self.rename_preset_button)
+        preset_layout.addWidget(self.delete_preset_button)
+        
+        # Add the horizontal preset layout to the main vertical layout.
+        layout.addLayout(preset_layout)
+
         self.source_combo = qt.QComboBox()
         self.destination_combo = qt.QComboBox()
 
