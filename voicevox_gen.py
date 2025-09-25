@@ -628,11 +628,23 @@ def onVoicevoxOptionSelected(browser):
             # Limit filename length to something reasonable (255 is typical for most filesystems)
             return sanitized[:255]
 
+        # Before processing, we pre-filter the selected notes to include
+        # only those with non-empty text in the source field.
+        # This prevents unnecessary API calls and the creation of empty audio files.
+        notes_with_content = []
+        for note_id in dialog.selected_notes:
+            note_text, _ = dialog.getNoteTextAndSpeaker(note_id)
+            if note_text and note_text.strip():
+                notes_with_content.append(note_id)
+
+        if not notes_with_content:
+            return
+
         # We split the work into chunks so we can pass a bunch of audio queries to the synthesizer instead of doing them one at time, but we don't want to do all of them at once so chunks make the most sense
         CHUNK_SIZE = 4
-        note_chunks = DivideIntoChunks(dialog.selected_notes, CHUNK_SIZE)
+        note_chunks = DivideIntoChunks(notes_with_content, CHUNK_SIZE)
         notes_so_far = 0
-        total_notes = len(dialog.selected_notes)
+        total_notes = len(notes_with_content)
         updateProgress(notes_so_far, total_notes)
 
         # Pre-cache user template for performance
