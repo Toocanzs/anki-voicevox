@@ -6,6 +6,8 @@ import requests
 import json 
 import urllib.parse
 from aqt.utils import showText
+from aqt.utils import showInfo
+from aqt.utils import getText
 from os.path import join, exists, dirname
 import random
 import base64
@@ -18,6 +20,7 @@ import traceback
 import re, html
 import json
 import datetime
+from dataclasses import dataclass
 
 VOICEVOX_CONFIG_NAME = "VOICEVOX_CONFIG"
 
@@ -109,10 +112,106 @@ def parse_filename_template(template: str, placeholders: dict) -> str:
 
     return result
 
+@dataclass
+class SettingConfig:
+    """Configuration metadata for each setting in MyDialog.SETTING_MAP."""
+    attr_name: str  # Widget attribute name (e.g., "volume_slider")
+    getter_name: str  # Method to read value (e.g., "value")
+    setter_name: str  # Method to write value (e.g., "setValue")
+
+    # Optional conversion functions, default to None (direct use)
+    loader_func: callable = (
+        None  # Function for type conversion during loading (str -> bool/int/etc.)
+    )
+    saver_func: callable = (
+        None  # Function for type conversion during saving (bool/int/etc. -> str/primitive)
+    )
+
+    # Whether to emit the signal after setting the value on load (used for speaker_combo)
+    emit_signal_on_load: bool = False
+
+    # We add a way to group fields visually (optional, but helpful for big maps)
+    group: str = "General"
+
 class MyDialog(qt.QDialog):
+    @staticmethod
+    def _bool_to_str(value: bool) -> str:
+        """Converts boolean check state to config string 'true' or 'false'."""
+        return "true" if value else "false"
+    
+    @staticmethod
+    def _str_to_bool(value: str) -> bool:
+        """Converts config string 'true' or 'false' to boolean check state."""
+        return value.lower() == "true"
+    
+    # Define the mapping of config keys to UI widget attributes and their getter/setter methods
+    # We use the dataclsss SettingConfig for clarity
+    SETTING_MAP = {
+        # Text and Combo Boxes (most fields use default None for conversion)
+        "source_field": SettingConfig(
+            "source_combo", "currentText", "setCurrentText", group="Fields"
+        ),
+        "destination_field": SettingConfig(
+            "destination_combo", "currentText", "setCurrentText", group="Fields"
+        ),
+        "filename_template": SettingConfig(
+            "filename_template_edit", "text", "setText", group="General"
+        ),
+        # Speaker/Style: Needs emit_signal_on_load=True to update styles combo
+        "speaker_name": SettingConfig(
+            "speaker_combo",
+            "currentText",
+            "setCurrentText",
+            emit_signal_on_load=True,
+            group="Voice",
+        ),
+        "style_name": SettingConfig(
+            "style_combo", "currentText", "setCurrentText", group="Voice"
+        ),
+        # Boolean Checkboxes: Needs both loader_func and saver_func
+        "append_audio": SettingConfig(
+            "append_audio",
+            "isChecked",
+            "setChecked",
+            loader_func=_str_to_bool,
+            saver_func=_bool_to_str,
+            group="File Options",
+        ),
+        "use_opus": SettingConfig(
+            "use_opus",
+            "isChecked",
+            "setChecked",
+            loader_func=_str_to_bool,
+            saver_func=_bool_to_str,
+            group="File Options",
+        ),
+        # Sliders: All use default settings
+        "volume_slider_value": SettingConfig(
+            "volume_slider", "value", "setValue", group="Sliders"
+        ),
+        "pitch_slider_value": SettingConfig(
+            "pitch_slider", "value", "setValue", group="Sliders"
+        ),
+        "speed_slider_value": SettingConfig(
+            "speed_slider", "value", "setValue", group="Sliders"
+        ),
+        "intonation_slider_value": SettingConfig(
+            "intonation_slider", "value", "setValue", group="Sliders"
+        ),
+        "initial_silence_slider_value": SettingConfig(
+            "initial_silence_slider", "value", "setValue", group="Sliders"
+        ),
+        "final_silence_slider_value": SettingConfig(
+            "final_silence_slider", "value", "setValue", group="Sliders"
+        ),
+    }
+
     def __init__(self, browser, parent=None) -> None:
         super().__init__(parent)
         self.selected_notes = browser.selectedNotes()
+
+        # Flag to indicate if settings are being loaded from a preset.
+        self._is_loading_preset = False
 
         config = mw.addonManager.getConfig(__name__)
 
@@ -262,6 +361,15 @@ class MyDialog(qt.QDialog):
                 break
             i += 1
 
+        # Temporarily block the signal to prevent premature style list clearing
+        self.speaker_combo.blockSignals(True)
+        self.speaker_combo.setCurrentIndex(speaker_combo_index)
+        self.speaker_combo.blockSignals(False)  # Unblock it after setting speaker
+
+        # Manually trigger the style update *after* the correct speaker is set
+        update_speaker_style_combo_box()
+
+        # Now find the style index based on the *newly populated* styles list
         style_combo_index = 0
         i = 0
         for style_item in [self.style_combo.itemText(i) for i in range(self.style_combo.count())]:
@@ -270,7 +378,6 @@ class MyDialog(qt.QDialog):
                 break
             i += 1
 
-        self.speaker_combo.setCurrentIndex(speaker_combo_index)
         self.style_combo.setCurrentIndex(style_combo_index) # NOTE: The previous style should probably be stored as a tuple with the speaker, but this is good enough. IE. Person A style X is not the same as Person B style X
 
         self.grid_layout.addWidget(qt.QLabel("Style: "), 1, 2)
@@ -283,6 +390,7 @@ class MyDialog(qt.QDialog):
 
         def voiceValueChanged(*args):
             resetPreviewIndex(*args)
+            self._clear_preset_selection() # Clear preset selection on voice change
 
         # Connect the voice value changed signals
         self.speaker_combo.currentIndexChanged.connect(voiceValueChanged)
@@ -403,89 +511,97 @@ class MyDialog(qt.QDialog):
             def update_this_slider(value):
                 label.setText(f'{slider_desc} {slider.value() / 100}')
                 config[config_name] = slider.value()
-                mw.addonManager.writeConfig(__name__, config)
             return update_this_slider
         
-        volume_slider = QSlider(qt.Qt.Orientation.Horizontal)
-        volume_slider.setMinimum(0)
-        volume_slider.setMaximum(200)
-        volume_slider.setValue(config.get('volume_slider_value') or 100)
+        self.volume_slider = QSlider(qt.Qt.Orientation.Horizontal)
+        self.volume_slider.setMinimum(0)
+        self.volume_slider.setMaximum(200)
+        self.volume_slider.setValue(config.get('volume_slider_value') or 100)
         
-        volume_label = QLabel(f'Volume scale {volume_slider.value() / 100}')
+        volume_label = QLabel(f'Volume scale {self.volume_slider.value() / 100}')
         
-        volume_slider.valueChanged.connect(update_slider(volume_slider, volume_label, 'volume_slider_value', 'Volume scale'))
-        volume_slider.valueChanged.connect(voiceValueChanged)
+        self.volume_slider.valueChanged.connect(update_slider(self.volume_slider, volume_label, 'volume_slider_value', 'Volume scale'))
+        self.volume_slider.valueChanged.connect(voiceValueChanged)
 
         self.grid_layout.addWidget(volume_label, 5, 0, 1, 2)
-        self.grid_layout.addWidget(volume_slider, 5, 3, 1, 2)
+        self.grid_layout.addWidget(self.volume_slider, 5, 3, 1, 2)
         
-        pitch_slider = QSlider(qt.Qt.Orientation.Horizontal)
-        pitch_slider.setMinimum(-15)
-        pitch_slider.setMaximum(15)
-        pitch_slider.setValue(config.get('pitch_slider_value') or 0)
+        self.pitch_slider = QSlider(qt.Qt.Orientation.Horizontal)
+        self.pitch_slider.setMinimum(-15)
+        self.pitch_slider.setMaximum(15)
+        self.pitch_slider.setValue(config.get('pitch_slider_value') or 0)
         
-        pitch_label = QLabel(f'Pitch scale {pitch_slider.value() / 100}')
+        pitch_label = QLabel(f'Pitch scale {self.pitch_slider.value() / 100}')
         
-        pitch_slider.valueChanged.connect(update_slider(pitch_slider, pitch_label, 'pitch_slider_value', 'Pitch scale'))
-        pitch_slider.valueChanged.connect(voiceValueChanged)
+        self.pitch_slider.valueChanged.connect(update_slider(self.pitch_slider, pitch_label, 'pitch_slider_value', 'Pitch scale'))
+        self.pitch_slider.valueChanged.connect(voiceValueChanged)
 
         self.grid_layout.addWidget(pitch_label, 6, 0, 1, 2)
-        self.grid_layout.addWidget(pitch_slider, 6, 3, 1, 2)
+        self.grid_layout.addWidget(self.pitch_slider, 6, 3, 1, 2)
         
-        speed_slider = QSlider(qt.Qt.Orientation.Horizontal)
-        speed_slider.setMinimum(50)
-        speed_slider.setMaximum(200)
-        speed_slider.setValue(config.get('speed_slider_value') or 100)
+        self.speed_slider = QSlider(qt.Qt.Orientation.Horizontal)
+        self.speed_slider.setMinimum(50)
+        self.speed_slider.setMaximum(200)
+        self.speed_slider.setValue(config.get('speed_slider_value') or 100)
         
-        speed_label = QLabel(f'Speed scale {speed_slider.value() / 100}')
+        speed_label = QLabel(f'Speed scale {self.speed_slider.value() / 100}')
         
-        speed_slider.valueChanged.connect(update_slider(speed_slider, speed_label, 'speed_slider_value', 'Speed scale'))
-        speed_slider.valueChanged.connect(voiceValueChanged)
+        self.speed_slider.valueChanged.connect(update_slider(self.speed_slider, speed_label, 'speed_slider_value', 'Speed scale'))
+        self.speed_slider.valueChanged.connect(voiceValueChanged)
 
         self.grid_layout.addWidget(speed_label, 7, 0, 1, 2)
-        self.grid_layout.addWidget(speed_slider, 7, 3, 1, 2)
+        self.grid_layout.addWidget(self.speed_slider, 7, 3, 1, 2)
 
         # Intonation slider
-        intonation_slider = QSlider(qt.Qt.Orientation.Horizontal)
-        intonation_slider.setMinimum(1)
-        intonation_slider.setMaximum(200)
-        intonation_slider.setValue(config.get('intonation_slider_value') or 100)
+        self.intonation_slider = QSlider(qt.Qt.Orientation.Horizontal)
+        self.intonation_slider.setMinimum(1)
+        self.intonation_slider.setMaximum(200)
+        self.intonation_slider.setValue(config.get('intonation_slider_value') or 100)
         
-        intonation_label = QLabel(f'Intonation scale {intonation_slider.value() / 100}')
+        intonation_label = QLabel(f'Intonation scale {self.intonation_slider.value() / 100}')
         
-        intonation_slider.valueChanged.connect(update_slider(intonation_slider, intonation_label, 'intonation_slider_value', 'Intonation scale'))
-        intonation_slider.valueChanged.connect(voiceValueChanged)
+        self.intonation_slider.valueChanged.connect(update_slider(self.intonation_slider, intonation_label, 'intonation_slider_value', 'Intonation scale'))
+        self.intonation_slider.valueChanged.connect(voiceValueChanged)
 
         self.grid_layout.addWidget(intonation_label, 8, 0, 1, 2)
-        self.grid_layout.addWidget(intonation_slider, 8, 3, 1, 2)
+        self.grid_layout.addWidget(self.intonation_slider, 8, 3, 1, 2)
 
         # Initial silence slider
-        initial_silence_slider = QSlider(qt.Qt.Orientation.Horizontal)
-        initial_silence_slider.setMinimum(0)
-        initial_silence_slider.setMaximum(150)
-        initial_silence_slider.setValue(config.get('initial_silence_slider_value') or 10)
+        self.initial_silence_slider = QSlider(qt.Qt.Orientation.Horizontal)
+        self.initial_silence_slider.setMinimum(0)
+        self.initial_silence_slider.setMaximum(150)
+        self.initial_silence_slider.setValue(config.get('initial_silence_slider_value') or 10)
 
-        initial_silence_label = QLabel(f'Initial silence scale {initial_silence_slider.value() / 100}')
+        initial_silence_label = QLabel(f'Initial silence scale {self.initial_silence_slider.value() / 100}')
 
-        initial_silence_slider.valueChanged.connect(update_slider(initial_silence_slider, initial_silence_label, 'initial_silence_slider_value', 'Initial silence scale'))
-        initial_silence_slider.valueChanged.connect(voiceValueChanged)
+        self.initial_silence_slider.valueChanged.connect(update_slider(self.initial_silence_slider, initial_silence_label, 'initial_silence_slider_value', 'Initial silence scale'))
+        self.initial_silence_slider.valueChanged.connect(voiceValueChanged)
 
         self.grid_layout.addWidget(initial_silence_label, 9, 0, 1, 2)
-        self.grid_layout.addWidget(initial_silence_slider, 9, 3, 1, 2)
+        self.grid_layout.addWidget(self.initial_silence_slider, 9, 3, 1, 2)
 
         # Final silence slider
-        final_silence_slider = QSlider(qt.Qt.Orientation.Horizontal)
-        final_silence_slider.setMinimum(0)
-        final_silence_slider.setMaximum(150)
-        final_silence_slider.setValue(config.get('final_silence_slider_value') or 10)
+        self.final_silence_slider = QSlider(qt.Qt.Orientation.Horizontal)
+        self.final_silence_slider.setMinimum(0)
+        self.final_silence_slider.setMaximum(150)
+        self.final_silence_slider.setValue(config.get('final_silence_slider_value') or 10)
 
-        final_silence_label = QLabel(f'Final silence length {final_silence_slider.value() / 100}')
+        final_silence_label = QLabel(f'Final silence length {self.final_silence_slider.value() / 100}')
 
-        final_silence_slider.valueChanged.connect(update_slider(final_silence_slider, final_silence_label, 'final_silence_slider_value', 'Final silence scale'))
-        final_silence_slider.valueChanged.connect(voiceValueChanged)
+        self.final_silence_slider.valueChanged.connect(update_slider(self.final_silence_slider, final_silence_label, 'final_silence_slider_value', 'Final silence scale'))
+        self.final_silence_slider.valueChanged.connect(voiceValueChanged)
 
         self.grid_layout.addWidget(final_silence_label, 10, 0, 1, 2)
-        self.grid_layout.addWidget(final_silence_slider, 10, 3, 1, 2)
+        self.grid_layout.addWidget(self.final_silence_slider, 10, 3, 1, 2)
+
+        # Connect setting controls to clear preset on change
+        # NOTE: Controls connected to voiceValueChanged() are implicitly handled, 
+        # as that function already calls _clear_preset_selection()
+        self.destination_combo.currentIndexChanged.connect(self._clear_preset_selection)
+        self.filename_template_edit.textChanged.connect(self._clear_preset_selection)
+        self.append_audio.stateChanged.connect(self._clear_preset_selection)
+        self.use_opus.stateChanged.connect(self._clear_preset_selection)
+
         
         layout.addLayout(self.grid_layout)
 
@@ -499,29 +615,358 @@ class MyDialog(qt.QDialog):
         self.preset_combo.currentIndexChanged.connect(self._load_preset)
 
 
-    def _load_preset_names(self):
-        """Load presets from config and populate the dropdown."""
-        pass
+    def _load_preset_names(self, select_name: str = None):
+        """
+        Loads preset names from config into the preset combo box.
+
+        Args:
+            select_name: The name of the preset to select after loading.
+        """
+        config = mw.addonManager.getConfig(__name__)
+        all_presets = config.get("presets", {})
+
+        # Block signals while rebuilding the combo box
+        # We temporarily block the signal to prevent _load_preset from firing on rebuild
+        self.preset_combo.blockSignals(True)
+        self.preset_combo.clear()
+
+        # Add the default 'No Preset' option with a meaningful display text
+        # The actual data stored (and returned when selected) is the empty string ""
+        self.preset_combo.addItem("---", "")
+
+        # Add existing presets and determine which one to select
+        names = sorted(all_presets.keys(), key=str.lower)
+
+        # Determine the target name to select:
+        # 1. Use the name passed during save (select_name)
+        # 2. If None, fall back to the last saved preset name from config
+        # 3. If no last preset, fall back to "" (which selects the '---' option)
+        target_name = (
+            select_name if select_name is not None else config.get("last_preset", "")
+        ) 
+        index_to_select = 0  # Default to "---"
+
+        for i, name in enumerate(names):
+            # The combo box stores the displayed name, and the actual config key as itemData
+            self.preset_combo.addItem(name, name)
+            if name == target_name:
+                # We add 1 because the first item (index 0) is "---"
+                index_to_select = i + 1
+        
+        if len(names) > 0:
+            # Hide the default item (index 0) in the visual dropdown list
+            internal_view = self.preset_combo.view()
+            internal_view.setRowHidden(0, True) 
+
+        # Select the determined index and unblock signals
+        self.preset_combo.setCurrentIndex(index_to_select)
+        self.preset_combo.blockSignals(False)
 
     def _save_preset(self):
-        """Handle the 'Save' button click."""
-        pass
+        """Handle the 'Save' button click: Prompts for a name and saves current settings."""
+        # Prompt user for a preset name
+        # We will use the currently selected preset name as the default text, 
+        # defaulting to a prompt if no preset is selected
+        current_preset_name = self.preset_combo.currentData() or "New Preset Name"
+
+        # getText returns a tuple (text, ok), where ok is True if user clicked OK
+        preset_name, ok = getText(
+            "Enter a name for the new preset:", default=current_preset_name
+        )
+
+        if not ok or not preset_name.strip():
+            # User cancelled or entered an empty name
+            return
+
+        preset_name = preset_name.strip()
+
+        # Get current settings
+        settings_to_save = self._get_current_settings()
+
+        # Read config, update presets, and save
+        config = mw.addonManager.getConfig(__name__)
+        # Ensure we always get the presets dictionary, or an empty one if not exists
+        all_presets = config.get("presets", {})
+
+        # Check if the preset name already exists
+        if preset_name in all_presets:
+            confirm = QMessageBox.question(
+                self, 
+                "Overwrite Preset", 
+                f"A preset named '{preset_name}' already exists.\nDo you want to overwrite it?", 
+                qt.QMessageBox.StandardButton.Yes | qt.QMessageBox.StandardButton.No,
+                qt.QMessageBox.StandardButton.No
+            )
+
+            if confirm == qt.QMessageBox.StandardButton.No:
+                # User chose not to overwrite, so we exit the function
+                return
+
+        # Save the new settings under the chosen name
+        all_presets[preset_name] = settings_to_save
+
+        # Update the config dictionary
+        config["presets"] = all_presets
+
+        mw.addonManager.writeConfig(__name__, config)
+
+        # Refresh the UI to show the new preset as selected
+        # Pass the name of the preset we want to select to the refresh function
+        self._load_preset_names(select_name=preset_name)
+
+        showInfo(f"Preset '{preset_name}' saved successfully!")
 
     def _rename_preset(self):
-        """Handle the 'Rename' button click."""
-        pass
+        """Handle the 'Rename' button click: Prompts for a new name and updates the config."""
+        current_preset_name = self.preset_combo.currentData()
+
+        # Check if a preset is actually selected (not the "---" option)
+        if not current_preset_name:
+            showInfo("Please select a valid preset to rename.")
+            return
+
+        # Prompt user for a new preset name, using the current name as default
+        new_preset_name, ok = getText(
+            f"Rename preset '{current_preset_name}' to:", default=current_preset_name
+        )
+
+        if not ok or not new_preset_name.strip():
+            # User cancelled or entered an empty name
+            return
+
+        new_preset_name = new_preset_name.strip()
+
+        if new_preset_name == current_preset_name:
+            # Name hasn't changed, no action needed
+            showInfo("Preset name was not changed.")
+            return
+
+        # Read config and check for conflicts
+        config = mw.addonManager.getConfig(__name__)
+        all_presets = config.get("presets", {})
+
+        if new_preset_name in all_presets:
+            QMessageBox.critical(
+                self, 
+                "Rename Error", 
+                f"A preset named '{new_preset_name}' already exists.\nPlease choose a different name."
+            )
+            return
+
+        # Perform the rename: copy settings to new key, then delete old key
+        # The settings are already loaded in all_presets[current_preset_name]
+        settings_to_rename = all_presets.pop(current_preset_name)
+        all_presets[new_preset_name] = settings_to_rename
+
+        # Update last_preset in config
+        if config.get("last_preset") == current_preset_name:
+            config["last_preset"] = new_preset_name
+
+        # Save config
+        config["presets"] = all_presets
+        mw.addonManager.writeConfig(__name__, config)
+
+        # Refresh UI, selecting the new name
+        self._load_preset_names(select_name=new_preset_name)
+
+        showInfo(f"Preset renamed to '{new_preset_name}' successfully!")
+
 
     def _delete_preset(self):
-        """Handle the 'Delete' button click."""
-        pass
+        """Handle the 'Delete' button click: Prompts for confirmation and removes the preset."""
+        current_preset_name = self.preset_combo.currentData()
+
+        # Check if a preset is actually selected
+        if not current_preset_name:
+            showInfo("Please select a preset to delete.")
+            return
+
+        # Ask for user confirmation
+        confirm = QMessageBox.question(
+            self, 
+            "Confirm Deletion",
+            f"Are you sure you want to delete the preset '{current_preset_name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+
+        if confirm == QMessageBox.StandardButton.No:
+            return
+
+        # --- Pre-deletion state capture ---
+        # Get all current preset names (excluding the default '---')
+        all_preset_names_before_delete = [
+            self.preset_combo.itemText(i)
+            for i in range(
+                1, self.preset_combo.count()
+            )  # Start from index 1 to skip '---'
+        ]
+
+        # Find the index of the preset being deleted in the pre-deletion list
+        try:
+            old_index_in_list = all_preset_names_before_delete.index(current_preset_name)
+        except ValueError:
+            # Should not happen, but safe to assume it's the last item if not found
+            old_index_in_list = len(all_preset_names_before_delete) - 1
+
+        # Read config and delete the preset
+        config = mw.addonManager.getConfig(__name__)
+        all_presets = config.get("presets", {})
+
+        if current_preset_name in all_presets:
+            del all_presets[current_preset_name]
+        else:
+            showInfo(f"Preset '{current_preset_name}' not found in configuration.")
+            return
+
+        # Update last_preset and save config
+        if config.get("last_preset") == current_preset_name:
+            config["last_preset"] = ""
+
+        config["presets"] = all_presets
+        mw.addonManager.writeConfig(__name__, config)
+
+        # --- Determine the next preset to select ---
+        # Get the new sorted list of names
+        new_names = sorted(all_presets.keys(), key=str.lower)
+        name_to_select = None
+
+        if new_names:
+            # Try to select the preset at the old index
+            # If the old index is now out of bounds (because it was the last item), use the new last item index
+            new_index = min(old_index_in_list, len(new_names) - 1)
+            name_to_select = new_names[new_index]
+        # If new_names is empty, name_to_select remains None, which correctly selects '---'
+
+        # Refresh UI, selecting the determined name
+        self._load_preset_names(select_name=name_to_select)
+        self._load_preset()
+
+        showInfo(f"Preset '{current_preset_name}' deleted successfully!")
 
     def _load_preset(self):
-        """Apply the selected preset's settings to the UI."""
-        pass
+        """
+        Apply the selected preset's settings to the UI using the structured SETTING_MAP.
+
+        This function relies on the `self._is_loading_preset` flag to prevent any
+        signal-driven functions (like _clear_preset_selection) from executing while
+        programmatically setting widget values.
+        """
+        preset_name = self.preset_combo.currentData()
+
+        if not preset_name:
+            return
+
+        config = mw.addonManager.getConfig(__name__)
+        all_presets = config.get("presets", {})
+        preset_settings = all_presets.get(preset_name)
+
+        if not preset_settings:
+            return
+
+        # Set flag: Temporarily disable signal-driven logic (e.g., clearing preset selection)
+        self._is_loading_preset = True
+
+        # Iterate and apply settings dynamically from the preset
+        # The 'speaker_combo' signal triggers style update before 'style_name' is set
+        for key, setting_config in self.SETTING_MAP.items():
+            value = preset_settings.get(key)
+            if value is None:
+                continue
+
+            widget = getattr(self, setting_config.attr_name, None)
+            if widget is None:
+                # UI widget not found for this setting
+                continue
+
+            # Apply loader function if needed
+            set_value = (
+                setting_config.loader_func(value) if setting_config.loader_func else value
+            )
+
+            # Use getattr to call the correct setter method (e.g., .setCurrentText, .setValue, .setChecked)
+            try:
+                setter = getattr(widget, setting_config.setter_name)
+                setter(set_value)
+            except Exception as e:
+                # Log the error but continue applying other settings
+                print(f"Error applying setting {setting_config.attr_name}: {e}")
+
+        # Reset flag: Re-enable normal signal-driven behavior immediately after all settings have been applied
+        self._is_loading_preset = False
+
+    def _clear_preset_selection(self):
+        """
+        Sets the preset combo box back to the '---' option (index 0).
+        This is called whenever a user manually changes any significant setting
+        after a preset might have been loaded.
+        """
+        # CRUCIAL CHECK: If we are currently loading a preset, do nothing
+        if self._is_loading_preset:
+            return
+
+        current_data = self.preset_combo.currentData()
+        # Only act if a preset is currently selected (currentData() is not None or "")
+        if current_data:
+            # Block signals to prevent _load_preset from firing
+            self.preset_combo.blockSignals(True)
+            # Select the first item, which is "---" (itemData is "")
+            self.preset_combo.setCurrentIndex(0)
+            self.preset_combo.blockSignals(False)
+
 
     def _get_current_settings(self):
-        """Gathers the current UI settings into a dictionary."""
-        pass
+        """
+        Gathers the current UI settings into a dictionary using the SETTING_MAP.
+        """
+        settings = {}
+        # Iterate using the namedtuple for clean access
+        for key, setting_config in self.SETTING_MAP.items():
+
+            # Get the widget instance (e.g., self.volume_slider)
+            widget = getattr(self, setting_config.attr_name, None)
+            if widget is None:
+                # This should ideally not happen if SETTING_MAP is correct
+                print(
+                    f"Warning: Widget attribute '{setting_config.attr_name}' not found on MyDialog."
+                )
+                continue
+
+            # Get the getter method (e.g., .value, .currentText, .isChecked)
+            getter = getattr(widget, setting_config.getter_name)
+
+            # Call the getter method to get the raw value
+            raw_value = getter()
+
+            # Apply conversion for saving if a saver function is defined
+            if setting_config.saver_func:
+                settings[key] = setting_config.saver_func(raw_value)
+            else:
+                # All other values (text, int from slider) can be saved directly
+                settings[key] = raw_value
+
+        return settings
+    
+    def _save_transient_settings(self):
+        """
+        Saves the specific values (only SLIDER values for now)
+        when the dialog closes (Accept or Reject).
+        Other settings are saved only after audio generation.
+        """
+        config = mw.addonManager.getConfig(__name__)
+        current_settings = self._get_current_settings()
+
+        # Only save SLIDER related settings
+        for key, value in current_settings.items():
+            # Check if the key corresponds to a slider value
+            if "slider_value" in key:
+                config[key] = value
+
+        mw.addonManager.writeConfig(__name__, config)
+
+    def reject(self):
+        """Override reject to save transient settings before closing."""
+        self._save_transient_settings()
+        super().reject()
 
     def pre_accept(self):
         if self.source_combo.currentIndex() == self.destination_combo.currentIndex():
@@ -655,22 +1100,26 @@ def onVoicevoxOptionSelected(browser):
         if speaker_index is None:
             raise Exception('getSpeaker returned None in my_action')
         
-        source_field = dialog.source_combo.itemText(dialog.source_combo.currentIndex())
-        destination_field = dialog.destination_combo.itemText(dialog.destination_combo.currentIndex())
+        # Use _get_current_settings to capture all general settings (sliders, template, append/opus, combo box current text, etc.)
+        current_settings = dialog._get_current_settings()
 
-        speaker_combo_text = dialog.speaker_combo.itemText(dialog.speaker_combo.currentIndex())
-        style_combo_text = dialog.style_combo.itemText(dialog.style_combo.currentIndex())
-        user_template = dialog.filename_template_edit.text()
+        destination_field = current_settings.get("destination_field")
+        speaker_combo_text = current_settings.get("speaker_name")
+        style_combo_text = current_settings.get("style_name")
+
+        selected_preset_name = dialog.preset_combo.currentData()
 
         # Save previously used stuff
         config = mw.addonManager.getConfig(__name__)
-        config['last_source_field'] = source_field
-        config['last_destination_field'] = destination_field
-        config['last_speaker_name'] = speaker_combo_text
-        config['last_style_name'] = style_combo_text
-        config['append_audio'] = "true" if dialog.append_audio.isChecked() else "false"
-        config['use_opus'] = "true" if dialog.use_opus.isChecked() else "false"
-        config['filename_template'] = user_template
+
+        # NOTE: Standard settings should be saved via SETTING_MAP's fields
+        # Only add keys here if they require non-standard naming or handling
+        for key, value in current_settings.items():
+            if key in ["source_field", "destination_field", "speaker_name", "style_name"]:
+                key = f"last_{key}"
+            config[key] = value
+
+        config['last_preset'] = selected_preset_name
 
         mw.addonManager.writeConfig(__name__, config)
 
