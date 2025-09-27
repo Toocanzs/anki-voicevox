@@ -835,10 +835,11 @@ def onVoicevoxOptionSelected(browser):
                         audio_data = new_audio_data
                         audio_extension = new_audio_format
 
+                    note = mw.col.get_note(note_id)
+
                     # Build placeholders
-                    note_obj = mw.col.get_note(note_id)
-                    fields_map = {f: note_obj[f] for f in note_obj.keys()}
-                    cards_of_note = note_obj.cards()
+                    fields_map = {f: note[f] for f in note.keys()}
+                    cards_of_note = note.cards()
                     if cards_of_note:
                         deck_id = cards_of_note[0].did
                         deck_name = mw.col.decks.name(deck_id)
@@ -866,8 +867,7 @@ def onVoicevoxOptionSelected(browser):
                         f.write(audio_data)
 
                     audio_field_text = f"[sound:{filename}]"
-                    note = mw.col.get_note(note_id)
-                    if current_settings['append_audio'] == "true":
+                    if config['append_audio'] == "true":
                         note[destination_field] += audio_field_text
                     else:
                         note[destination_field] = audio_field_text
