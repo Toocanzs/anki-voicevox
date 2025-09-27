@@ -510,7 +510,6 @@ class MyDialog(qt.QDialog):
         def update_slider(slider, label, config_name, slider_desc):
             def update_this_slider(value):
                 label.setText(f'{slider_desc} {slider.value() / 100}')
-                config[config_name] = slider.value()
             return update_this_slider
         
         self.volume_slider = QSlider(qt.Qt.Orientation.Horizontal)
@@ -1162,7 +1161,7 @@ def onVoicevoxOptionSelected(browser):
         updateProgress(notes_so_far, total_notes)
 
         # Pre-cache user template for performance
-        filename_template = config.get("filename_template", "VOICEVOX_{{speaker}}_{{style}}_{{uid}}")
+        filename_template = current_settings.get("filename_template", "VOICEVOX_{{speaker}}_{{style}}_{{uid}}")
 
         for note_chunk in note_chunks:
             note_text_and_speakers = map(dialog.getNoteTextAndSpeaker, note_chunk)
@@ -1190,7 +1189,7 @@ def onVoicevoxOptionSelected(browser):
                     
                     audio_extension = "wav"
 
-                    new_audio_format = "opus" if config['use_opus'] == "true" else "mp3"
+                    new_audio_format = "opus" if current_settings['use_opus'] == "true" else "mp3"
                     new_audio_data = ffmpeg.ConvertWav(audio_data, new_audio_format)
                     if new_audio_data != None:
                         audio_data = new_audio_data
@@ -1228,7 +1227,7 @@ def onVoicevoxOptionSelected(browser):
 
                     audio_field_text = f"[sound:{filename}]"
                     note = mw.col.get_note(note_id)
-                    if config['append_audio'] == "true":
+                    if current_settings['append_audio'] == "true":
                         note[destination_field] += audio_field_text
                     else:
                         note[destination_field] = audio_field_text
