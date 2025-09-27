@@ -681,7 +681,7 @@ class MyDialog(qt.QDialog):
         preset_name = preset_name.strip()
 
         # Get current settings
-        settings_to_save = self._get_current_settings()
+        settings_to_save = self.get_current_settings()
 
         # Read config, update presets, and save
         config = mw.addonManager.getConfig(__name__)
@@ -914,7 +914,7 @@ class MyDialog(qt.QDialog):
             self.preset_combo.blockSignals(False)
 
 
-    def _get_current_settings(self):
+    def get_current_settings(self):
         """
         Gathers the current UI settings into a dictionary using the SETTING_MAP.
         """
@@ -953,7 +953,7 @@ class MyDialog(qt.QDialog):
         Other settings are saved only after audio generation.
         """
         config = mw.addonManager.getConfig(__name__)
-        current_settings = self._get_current_settings()
+        current_settings = self.get_current_settings()
 
         # Only save SLIDER related settings
         for key, value in current_settings.items():
@@ -1015,7 +1015,7 @@ class MyDialog(qt.QDialog):
             self.preview_note_index += 1
 
         tup = (text, speaker_index)
-        current_settings = self._get_current_settings()
+        current_settings = self.get_current_settings()
         result = GenerateAudioQuery(tup, current_settings)
         contents = SynthesizeAudio(result, speaker_index)
 
@@ -1101,8 +1101,8 @@ def onVoicevoxOptionSelected(browser):
         if speaker_index is None:
             raise Exception('getSpeaker returned None in my_action')
         
-        # Use _get_current_settings to capture all general settings (sliders, template, append/opus, combo box current text, etc.)
-        current_settings = dialog._get_current_settings()
+        # Use get_current_settings to capture all general settings (sliders, template, append/opus, combo box current text, etc.)
+        current_settings = dialog.get_current_settings()
 
         destination_field = current_settings.get("destination_field")
         speaker_combo_text = current_settings.get("speaker_name")
