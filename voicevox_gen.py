@@ -1015,7 +1015,8 @@ class MyDialog(qt.QDialog):
             self.preview_note_index += 1
 
         tup = (text, speaker_index)
-        result = GenerateAudioQuery(tup, mw.addonManager.getConfig(__name__))
+        current_settings = self._get_current_settings()
+        result = GenerateAudioQuery(tup, current_settings)
         contents = SynthesizeAudio(result, speaker_index)
 
         addon_path = dirname(__file__)
@@ -1030,7 +1031,7 @@ class MyDialog(qt.QDialog):
     def PreviewVoiceActual(self):
         self.PreviewVoice(sample=False)
 
-def GenerateAudioQuery(text_and_speaker_index_tuple, config):
+def GenerateAudioQuery(text_and_speaker_index_tuple, settings: dict):
     try:
         text = text_and_speaker_index_tuple[0]
         speaker_index = text_and_speaker_index_tuple[1]
@@ -1040,18 +1041,18 @@ def GenerateAudioQuery(text_and_speaker_index_tuple, config):
             
         result = audio_query_response.text
         j = json.loads(result)
-        if config.get('speed_slider_value'):
-            j['speedScale'] = config.get('speed_slider_value') / 100;
-        if config.get('volume_slider_value'):
-            j['volumeScale'] = config.get('volume_slider_value') / 100;
-        if config.get('pitch_slider_value'):
-            j['pitchScale'] = config.get('pitch_slider_value') / 100;
-        if config.get('intonation_slider_value'):
-            j['intonationScale'] = config.get('intonation_slider_value') / 100;
-        if config.get('initial_silence_slider_value'):
-            j['prePhonemeLength'] = config.get('initial_silence_slider_value') / 100;
-        if config.get('final_silence_slider_value'):
-            j['postPhonemeLength'] = config.get('final_silence_slider_value') / 100;
+        if settings.get('speed_slider_value'):
+            j['speedScale'] = settings.get('speed_slider_value') / 100
+        if settings.get('volume_slider_value'):
+            j['volumeScale'] = settings.get('volume_slider_value') / 100
+        if settings.get('pitch_slider_value'):
+            j['pitchScale'] = settings.get('pitch_slider_value') / 100
+        if settings.get('intonation_slider_value'):
+            j['intonationScale'] = settings.get('intonation_slider_value') / 100
+        if settings.get('initial_silence_slider_value'):
+            j['prePhonemeLength'] = settings.get('initial_silence_slider_value') / 100
+        if settings.get('final_silence_slider_value'):
+            j['postPhonemeLength'] = settings.get('final_silence_slider_value') / 100
         result = json.dumps(j, ensure_ascii=False).encode('utf8')
         return result
     except Exception as e:
@@ -1170,7 +1171,7 @@ def onVoicevoxOptionSelected(browser):
             def GenerateQueryAndUpdateProgress(x, query_count):
                 updateProgress(notes_so_far, total_notes, f"Audio Query: {query_count}/{len(note_chunk)}")
                 query_count+=1
-                return GenerateAudioQuery(x, config)
+                return GenerateAudioQuery(x, current_settings)
 
             audio_queries = list(map(lambda note: GenerateQueryAndUpdateProgress(note, query_count), note_text_and_speakers))
             media_dir = mw.col.media.dir()
