@@ -153,9 +153,9 @@ class PresetManager:
         """Prompts for a name and saves current dialog settings as a preset."""
 
         # Use self.dialog.get_current_settings() to grab data
-        current_preset_name = (
-            self.dialog.preset_combo.currentData() or "New Preset Name"
-        )
+        current_preset_name = self.dialog.preset_combo.currentData()
+        if current_preset_name in ["", "Default"]:
+            current_preset_name = "New Preset Name"
 
         preset_name, ok = getText(
             "Enter a name for the new preset:",
