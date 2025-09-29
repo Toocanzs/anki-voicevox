@@ -6,6 +6,7 @@ import requests
 import json 
 import urllib.parse
 from aqt.utils import showText
+from aqt.utils import showInfo
 from os.path import join, exists, dirname
 import random
 import base64
@@ -304,15 +305,26 @@ class MyDialog(qt.QDialog):
 
         self.grid_layout.addLayout(preview_layout, 1, 4)
 
+        # Overwrite Audio
+        self.overwrite_audio = qt.QCheckBox("Overwrite Audio")
+        # Overwrite should be the default
+        overwrite_audio_checked = config.get('overwrite_audio') or "true"
+        self.overwrite_audio.setChecked(True if overwrite_audio_checked == "true" else False)
+        self.grid_layout.addWidget(self.overwrite_audio, 2, 0)
+
         self.append_audio =  qt.QCheckBox("Append Audio")
         append_audio_checked = config.get('append_audio') or "false"
         self.append_audio.setChecked(True if append_audio_checked == "true" else False)
-        self.grid_layout.addWidget(self.append_audio, 2, 0)
+        self.grid_layout.addWidget(self.append_audio, 2, 1)
+
+        # Ensure only one of the two checkboxes can be selected at a time.
+        self.overwrite_audio.clicked.connect(lambda: self.append_audio.setChecked(False))
+        self.append_audio.clicked.connect(lambda: self.overwrite_audio.setChecked(False))
 
         self.use_opus =  qt.QCheckBox("Use opus instead of mp3")
         use_opus_checked = config.get('use_opus') or "false"
         self.use_opus.setChecked(True if use_opus_checked == "true" else False)
-        self.grid_layout.addWidget(self.use_opus, 2, 1)
+        self.grid_layout.addWidget(self.use_opus, 2, 2)
 
         # Filename template
         self.grid_layout.addWidget(qt.QLabel("Filename: "), 3, 0)
@@ -731,8 +743,8 @@ def onVoicevoxOptionSelected(browser):
         progress_window.show()
         progress_window.setFocus()
 
-        def updateProgress(notes_so_far, total_notes, bottom_text = ''):
-            progress_text.setText(f"Generating Audio {notes_so_far}/{total_notes}\n{bottom_text}")
+        def updateProgress(notes_so_far, total_notes, skipped_notes = 0, bottom_text = ''):
+            progress_text.setText(f"Generating Audio {notes_so_far}/{total_notes}\nSkipped: {skipped_notes}\n{bottom_text}")
             progress_bar.setMaximum(total_notes)
             progress_bar.setValue(notes_so_far)
             mw.app.processEvents()
@@ -744,35 +756,67 @@ def onVoicevoxOptionSelected(browser):
             # Limit filename length to something reasonable (255 is typical for most filesystems)
             return sanitized[:255]
 
+        # Before processing, we pre-filter the selected notes to include
+        # only those with non-empty text in the source field.
+        # This prevents unnecessary API calls and the creation of empty audio files.
+        # Also, skip notes that already have audio if 'Overwrite Audio' is false.
+        notes_to_process = []
+        skipped_notes_count = 0
+        destination_field = dialog.destination_combo.itemText(dialog.destination_combo.currentIndex())
+        overwrite_mode = dialog.overwrite_audio.isChecked()
+
+        for note_id in dialog.selected_notes:
+            note_text, _ = dialog.getNoteTextAndSpeaker(note_id)
+            
+            # Check if source field is empty
+            if not note_text or not note_text.strip():
+                skipped_notes_count += 1
+                continue # Skip notes with no source text
+
+            # If not in overwrite mode, check if destination field has content
+            if not overwrite_mode:
+                note = mw.col.get_note(note_id)
+                destination_content = note[destination_field]
+                if destination_content and destination_content.strip():
+                    skipped_notes_count += 1
+                    continue # Skip notes with existing content in destination field
+            
+            # If we reach here, the note should be processed.
+            notes_to_process.append(note_id)
+
+        if not notes_to_process:
+            showInfo(f"Nothing processed.\nSkipped: {skipped_notes_count}")
+            return
+
         # We split the work into chunks so we can pass a bunch of audio queries to the synthesizer instead of doing them one at time, but we don't want to do all of them at once so chunks make the most sense
         CHUNK_SIZE = 4
-        note_chunks = DivideIntoChunks(dialog.selected_notes, CHUNK_SIZE)
+        note_chunks = DivideIntoChunks(notes_to_process, CHUNK_SIZE)
         notes_so_far = 0
-        total_notes = len(dialog.selected_notes)
-        updateProgress(notes_so_far, total_notes)
+        total_notes = len(notes_to_process)
+        updateProgress(notes_so_far, total_notes, skipped_notes_count)
 
         # Pre-cache user template for performance
         filename_template = current_settings.get("filename_template", "VOICEVOX_{{speaker}}_{{style}}_{{uid}}")
 
         for note_chunk in note_chunks:
             note_text_and_speakers = map(dialog.getNoteTextAndSpeaker, note_chunk)
-            updateProgress(notes_so_far, total_notes, f"Audio Query: {0}/{len(note_chunk)}")
+            updateProgress(notes_so_far, total_notes, skipped_notes_count, f"Audio Query: {0}/{len(note_chunk)}")
             query_count = 0
             def GenerateQueryAndUpdateProgress(x, query_count):
-                updateProgress(notes_so_far, total_notes, f"Audio Query: {query_count}/{len(note_chunk)}")
+                updateProgress(notes_so_far, total_notes, skipped_notes_count, f"Audio Query: {query_count}/{len(note_chunk)}")
                 query_count+=1
                 return GenerateAudioQuery(x, current_settings)
 
             audio_queries = list(map(lambda note: GenerateQueryAndUpdateProgress(note, query_count), note_text_and_speakers))
             media_dir = mw.col.media.dir()
-            updateProgress(notes_so_far, total_notes, f"Synthesizing Audio {notes_so_far} to {min(notes_so_far+CHUNK_SIZE, total_notes)}")
+            updateProgress(notes_so_far, total_notes, skipped_notes_count, f"Synthesizing Audio {notes_so_far} to {min(notes_so_far+CHUNK_SIZE, total_notes)}")
             zip_bytes = MultiSynthesizeAudio(audio_queries, speaker_index)
 
             # MultiSynthesis returns zip bytes with ZIP_STORED
             zip_counter = 0
             with zipfile.ZipFile(io.BytesIO(zip_bytes), "r", zipfile.ZIP_STORED) as wavs_zip:
                 for name in wavs_zip.namelist():
-                    updateProgress(notes_so_far, total_notes, f"Converting Audio: {zip_counter}/{len(note_chunk)}")
+                    updateProgress(notes_so_far, total_notes, skipped_notes_count, f"Converting Audio: {zip_counter}/{len(note_chunk)}")
                     zip_counter+=1
                     audio_data = wavs_zip.read(name)
                     chunk_note_index = int(name.replace('.wav', '')) - 1 # Starts at 001.wav, this converts to 0 index
