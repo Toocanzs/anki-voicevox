@@ -30,18 +30,26 @@ def getCommonFields(selected_notes):
 
     first = True
 
+    first_model_fields = []
+
     for note_id in selected_notes:
         note = mw.col.get_note(note_id)
         if note is None: 
             raise Exception(f"Note with id {note_id} is None.\nNotes: {','.join([mw.col.get_note(id) for id in selected_notes])}.\nPlease submit an issues with more information about what cards caused this at https://github.com/Toocanzs/anki-voicevox/issues/new")
         model = note.note_type()
-        model_fields = set([f['name'] for f in model['flds']])
+        current_fields = [f['name'] for f in model['flds']]
+        model_fields = set(current_fields)
         if first:
+            first_model_fields = current_fields
             common_fields = model_fields # Take the first one as is and we will intersect it with the following ones
         else:
             common_fields = common_fields.intersection(model_fields) # Find the common fields by intersecting the set of all fields together
         first = False
-    return common_fields
+
+    sorted_common_fields = [name for name in first_model_fields if name in common_fields]
+
+    return sorted_common_fields
+
 def getSpeakersOrNone():
     try:
         speakers_response = requests.get("http://127.0.0.1:50021/speakers", timeout=5)
@@ -136,7 +144,7 @@ class MyDialog(qt.QDialog):
             self.initialization_failed = True
             return
         elif len(common_fields) == 1:
-            QMessageBox.critical(browser, "Error", f"The chosen notes only share a single field in common '{list(common_fields)[0]}'. This would leave no field to put the generated audio without overwriting the sentence data")
+            QMessageBox.critical(browser, "Error", f"The chosen notes only share a single field in common '{common_fields[0]}'. This would leave no field to put the generated audio without overwriting the sentence data")
             self.initialization_failed = True
             return
 
