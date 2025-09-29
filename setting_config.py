@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Union
 
+
 @dataclass
 class SettingConfig:
     """Configuration metadata for each setting in MyDialog.SETTING_MAP."""
@@ -36,6 +37,18 @@ def bool_to_str(value: bool) -> str:
 def str_to_bool(value: str) -> bool:
     """Converts config string 'true' or 'false' to boolean check state."""
     return value.lower() == "true"
+
+
+def get_default_settings() -> dict:
+    """
+    Gathers default settings from SETTING_MAP.
+    """
+    default_settings = {}
+    for key, setting_config in SETTING_MAP.items():
+        if setting_config.default_value is not None:
+            # We save the raw default value
+            default_settings[key] = setting_config.default_value
+    return default_settings
 
 
 # Define the mapping of config keys to UI widget attributes and their getter/setter methods
@@ -92,21 +105,51 @@ SETTING_MAP = {
     ),
     # Sliders: All use default settings
     "volume_slider_value": SettingConfig(
-        "volume_slider", "value", "setValue", default_value=100, group="Sliders"
+        "volume_slider",
+        "value",
+        "setValue",
+        default_value=100,
+        emit_signal_on_load=True,
+        group="Sliders",
     ),
     "pitch_slider_value": SettingConfig(
-        "pitch_slider", "value", "setValue", default_value=0, group="Sliders"
+        "pitch_slider",
+        "value",
+        "setValue",
+        default_value=0,
+        emit_signal_on_load=True,
+        group="Sliders",
     ),
     "speed_slider_value": SettingConfig(
-        "speed_slider", "value", "setValue", default_value=100, group="Sliders"
+        "speed_slider",
+        "value",
+        "setValue",
+        default_value=100,
+        emit_signal_on_load=True,
+        group="Sliders",
     ),
     "intonation_slider_value": SettingConfig(
-        "intonation_slider", "value", "setValue", default_value=100, group="Sliders"
+        "intonation_slider",
+        "value",
+        "setValue",
+        default_value=100,
+        emit_signal_on_load=True,
+        group="Sliders",
     ),
     "initial_silence_slider_value": SettingConfig(
-        "initial_silence_slider", "value", "setValue", default_value=10, group="Sliders"
+        "initial_silence_slider",
+        "value",
+        "setValue",
+        default_value=10,
+        emit_signal_on_load=True,
+        group="Sliders",
     ),
     "final_silence_slider_value": SettingConfig(
-        "final_silence_slider", "value", "setValue", default_value=10, group="Sliders"
+        "final_silence_slider",
+        "value",
+        "setValue",
+        default_value=10,
+        emit_signal_on_load=True,
+        group="Sliders",
     ),
 }

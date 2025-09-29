@@ -8,8 +8,6 @@ import os
 # The name of the final Anki addon file.
 ADDON_NAME = "VOICEVOX Audio Generator.ankiaddon"
 
-# ADDON_NAME = "VOICEVOX Audio Generator.zip"
-
 CONFIG_FILE = "config.json"
 
 # List of files and directories to be included in the archive.
@@ -47,7 +45,7 @@ def dump_config(file_name: str) -> None:
         value = row.default_value
         func = row.saver_func
 
-        if not value:
+        if value is None:
             continue
         if func:
             value = func(value)

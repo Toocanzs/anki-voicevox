@@ -118,8 +118,6 @@ class MyDialog(qt.QDialog):
 
         config = mw.addonManager.getConfig(__name__)
 
-        self.default_settings = self._get_default_settings()
-
         layout = qt.QVBoxLayout()
 
         layout.addWidget(qt.QLabel("Selected notes: " + str(len(self.selected_notes))))
@@ -510,21 +508,6 @@ class MyDialog(qt.QDialog):
             for style in speaker[1]:
                 self.style_combo.addItem(style[0])
 
-    def _get_default_settings(self) -> dict:
-        """
-        Gathers default settings from SETTING_MAP
-
-        Fields with None `default_value` are omitted
-        """
-        default_settings = {}
-        for key, setting_config in SETTING_MAP.items():
-            if setting_config.default_value is None:
-                continue
-
-            default_settings[key] = setting_config.default_value
-
-        return default_settings
-
     def get_current_settings(self):
         """
         Gathers the current UI settings into a dictionary using the SETTING_MAP.
@@ -719,8 +702,6 @@ def onVoicevoxOptionSelected(browser):
         speaker_combo_text = current_settings.get("speaker_name")
         style_combo_text = current_settings.get("style_name")
 
-        selected_preset_name = dialog.preset_combo.currentData()
-
         # Save previously used stuff
         config = mw.addonManager.getConfig(__name__)
 
@@ -730,8 +711,6 @@ def onVoicevoxOptionSelected(browser):
             if key in ["source_field", "destination_field", "speaker_name", "style_name"]:
                 key = f"last_{key}"
             config[key] = value
-
-        config['last_preset'] = selected_preset_name
 
         mw.addonManager.writeConfig(__name__, config)
 

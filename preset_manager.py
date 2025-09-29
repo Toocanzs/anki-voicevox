@@ -1,6 +1,6 @@
 from aqt import mw
-from aqt.utils import showInfo, getText, askUser, QMessageBox
-from .setting_config import SETTING_MAP
+from aqt.utils import showInfo, getText, QMessageBox
+from .setting_config import SETTING_MAP, get_default_settings
 
 
 class PresetManager:
@@ -28,9 +28,6 @@ class PresetManager:
         # Initialize the combo box data
         self.load_preset_names()
 
-        # Set initial button states immediately on initialization
-        self._update_button_states()
-
     def _get_config(self) -> dict:
         """Helper to get the addon configuration."""
         return mw.addonManager.getConfig(self.addon_name)
@@ -38,14 +35,6 @@ class PresetManager:
     def _write_config(self, config: dict):
         """Helper to write the addon configuration."""
         mw.addonManager.writeConfig(self.addon_name, config)
-
-    def _get_default_settings(self) -> dict:
-        """Gathers default settings from the imported SETTING_MAP."""
-        default_settings = {}
-        for key, setting_config in SETTING_MAP.items():
-            if setting_config.default_value is not None:
-                default_settings[key] = setting_config.default_value
-        return default_settings
 
     def _apply_settings_to_ui(self, settings: dict):
         """Applies a dictionary of settings to the dialog's UI widgets."""
@@ -68,7 +57,6 @@ class PresetManager:
             try:
                 setter = getattr(widget, setting_config.setter_name)
                 # Temporarily block signals for widgets that don't need update logic until later
-                # NOTE: Only speaker_combo needs its signal to fire (for style update)
                 if not setting_config.emit_signal_on_load:
                     widget.blockSignals(True)
 
@@ -80,11 +68,6 @@ class PresetManager:
             except Exception as e:
                 print(f"Error applying setting {setting_config.attr_name}: {e}")
 
-        # Manually trigger style update if speaker combo was set without signal
-        # This is necessary because we blockSignals on the style combo in load_preset
-        if settings.get("speaker_name"):
-            self.dialog.update_speaker_style_combo_box()
-
         self._is_loading_preset = False  # Reset flag
 
     def _update_button_states(self):
@@ -95,9 +78,7 @@ class PresetManager:
         current_preset_name = self.dialog.preset_combo.currentData()
 
         # Check if a valid, non-Default preset is selected.
-        is_valid_user_preset = (current_preset_name != "") and (
-            current_preset_name != "Default"
-        )
+        is_valid_user_preset = current_preset_name not in ["", "Default"]
 
         # Rename, and Delete buttons are only enabled for user-defined presets
         self.dialog.rename_preset_button.setEnabled(is_valid_user_preset)
@@ -153,7 +134,7 @@ class PresetManager:
 
         # Ensure Default is available if needed
         if not ("Default" in all_presets):
-            all_presets["Default"] = self._get_default_settings()
+            all_presets["Default"] = get_default_settings()
 
         preset_settings = all_presets.get(preset_name)
 
@@ -177,7 +158,9 @@ class PresetManager:
         )
 
         preset_name, ok = getText(
-            "Enter a name for the new preset:", default=current_preset_name
+            "Enter a name for the new preset:",
+            default=current_preset_name,
+            title="Save",
         )
 
         if not ok or not preset_name.strip():
@@ -198,12 +181,14 @@ class PresetManager:
             return
 
         if preset_name in all_presets:
-            confirm = askUser(
+            confirm = QMessageBox.warning(
+                self.dialog,
+                "Overwrite Preset",
                 f"A preset named '{preset_name}' already exists.\nDo you want to overwrite it?",
-                title="Overwrite Preset",
-                defaultno=True,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
-            if not confirm:
+            if confirm != QMessageBox.StandardButton.Yes:
                 return
 
         all_presets[preset_name] = settings_to_save
@@ -211,7 +196,7 @@ class PresetManager:
         self._write_config(config)
 
         self.load_preset_names(select_name=preset_name)
-        showInfo(f"Preset '{preset_name}' saved successfully!")
+        showInfo(f"Preset '{preset_name}' saved successfully!", title="Save")
 
     def rename_preset(self):
         """Prompts for a new name and renames the current preset."""
@@ -219,7 +204,7 @@ class PresetManager:
         current_preset_name = self.dialog.preset_combo.currentData()
         # Checks and rename logic
         if not current_preset_name:
-            showInfo("Please select a valid preset to rename.")
+            showInfo("Please select a valid preset to rename.", title="Rename")
             return
 
         if current_preset_name == "Default":
@@ -231,7 +216,9 @@ class PresetManager:
             return
 
         new_preset_name, ok = getText(
-            f"Rename preset '{current_preset_name}' to:", default=current_preset_name
+            f"Rename preset '{current_preset_name}' to:",
+            default=current_preset_name,
+            title="Rename",
         )
         # Validation and config update
 
@@ -241,7 +228,7 @@ class PresetManager:
         new_preset_name = new_preset_name.strip()
 
         if new_preset_name == current_preset_name:
-            showInfo("Preset name was not changed.")
+            showInfo("Preset name was not changed.", title="Rename")
             return
 
         config = self._get_config()
@@ -271,7 +258,7 @@ class PresetManager:
         self._write_config(config)
 
         self.load_preset_names(select_name=new_preset_name)
-        showInfo(f"Preset renamed to '{new_preset_name}' successfully!")
+        showInfo(f"Preset renamed to '{new_preset_name}' successfully!", title="Rename")
 
     def delete_preset(self):
         """Deletes the selected preset from config."""
@@ -279,7 +266,7 @@ class PresetManager:
         current_preset_name = self.dialog.preset_combo.currentData()
 
         if not current_preset_name:
-            showInfo("Please select a preset to delete.")
+            showInfo("Please select a preset to delete.", title="Delete")
             return
 
         if current_preset_name == "Default":
@@ -288,12 +275,14 @@ class PresetManager:
             )
             return
 
-        confirm = askUser(
+        confirm = QMessageBox.warning(
+            self.dialog,
+            "Confirm Deletion",
             f"Are you sure you want to delete the preset '{current_preset_name}'?",
-            title="Confirm Deletion",
-            defaultno=True,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
-        if not confirm:
+        if confirm != QMessageBox.StandardButton.Yes:
             return
 
         old_index = self.dialog.preset_combo.currentIndex()
@@ -304,7 +293,7 @@ class PresetManager:
         if current_preset_name in all_presets:
             del all_presets[current_preset_name]
         else:
-            showInfo(f"Preset '{current_preset_name}' not found.")
+            showInfo(f"Preset '{current_preset_name}' not found.", title="Delete")
             return
 
         if config.get("last_preset") == current_preset_name:
@@ -320,7 +309,9 @@ class PresetManager:
         self.dialog.preset_combo.setCurrentIndex(new_index)
         self.load_preset()
 
-        showInfo(f"Preset '{current_preset_name}' deleted successfully!")
+        showInfo(
+            f"Preset '{current_preset_name}' deleted successfully!", title="Delete"
+        )
 
     def clear_preset_selection(self):
         """Sets the preset combo box back to the '---' option."""
