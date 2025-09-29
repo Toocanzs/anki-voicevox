@@ -1,2 +1,14 @@
 {
+    "presets": {
+        "Default": {
+            "filename_template": "VOICEVOX_{{speaker}}_{{style}}_{{uid}}",
+            "speaker_name": "\u56db\u56fd\u3081\u305f\u3093",
+            "style_name": "\u30ce\u30fc\u30de\u30eb",
+            "volume_slider_value": 100,
+            "speed_slider_value": 100,
+            "intonation_slider_value": 100,
+            "initial_silence_slider_value": 10,
+            "final_silence_slider_value": 10
+        }
+    }
 }
