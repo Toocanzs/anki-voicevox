@@ -2,6 +2,7 @@ import json
 from setting_config import SETTING_MAP
 from zipfile import ZipFile, ZIP_DEFLATED
 import os
+import argparse
 
 # --- Configuration ---
 
@@ -120,9 +121,43 @@ def create_anki_addon_archive(addon_name: str, entries: list[str]) -> None:
         print(f"An unexpected error occurred during zipping: {e}")
 
 
-if __name__ == "__main__":
-    # Ensure config.json is generated/updated
-    dump_config(CONFIG_FILE)
+def main():
+    """
+    Parses arguments and controls the build process using optional flags.
+    """
+    parser = argparse.ArgumentParser(
+        description=f"Anki Addon Build Script for {ADDON_NAME}.",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
 
-    # Execute the packaging process
-    create_anki_addon_archive(ADDON_NAME, ADDON_ENTRIES)
+    parser.add_argument(
+        "-r",
+        "--release",
+        action="store_true",
+        help="Package the addon into an .ankiaddon file.",
+    )
+
+    parser.add_argument(
+        "--no-config",
+        action="store_true",
+        help="Skip the generation/update of config.json.",
+    )
+
+    args = parser.parse_args()
+
+    # Config Generation Control
+    if not args.no_config:
+        print(f"Generating default config to {CONFIG_FILE}...")
+        dump_config(CONFIG_FILE)
+    else:
+        print("Skipping config.json generation (--no-config specified).")
+
+    # Packaging Control
+    if args.release:
+        create_anki_addon_archive(ADDON_NAME, ADDON_ENTRIES)
+    else:
+        print("Packaging skipped (use -r or --release to package the addon).")
+
+
+if __name__ == "__main__":
+    main()
