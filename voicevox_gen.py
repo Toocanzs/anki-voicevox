@@ -116,6 +116,9 @@ def parse_filename_template(template: str, placeholders: dict) -> str:
 class MyDialog(qt.QDialog):
     def __init__(self, browser, parent=None) -> None:
         super().__init__(parent)
+
+        self.initialization_failed = False
+
         self.selected_notes = browser.selectedNotes()
 
         config = mw.addonManager.getConfig(__name__)
@@ -129,9 +132,13 @@ class MyDialog(qt.QDialog):
         common_fields = getCommonFields(self.selected_notes)
 
         if len(common_fields) < 1:
-            QMessageBox.critical(mw, "Error", f"The chosen notes share no fields in common. Make sure you're not selecting two different note types")
+            QMessageBox.critical(browser, "Error", f"The chosen notes share no fields in common. Make sure you're not selecting two different note types")
+            self.initialization_failed = True
+            return
         elif len(common_fields) == 1:
-            QMessageBox.critical(mw, "Error", f"The chosen notes only share a single field in common '{list(common_fields)[0]}'. This would leave no field to put the generated audio without overwriting the sentence data")
+            QMessageBox.critical(browser, "Error", f"The chosen notes only share a single field in common '{list(common_fields)[0]}'. This would leave no field to put the generated audio without overwriting the sentence data")
+            self.initialization_failed = True
+            return
 
         # Preset management UI
         preset_layout = qt.QHBoxLayout()
@@ -580,7 +587,7 @@ class MyDialog(qt.QDialog):
         if self.source_combo.currentIndex() == self.destination_combo.currentIndex():
             source_text = self.source_combo.itemText(self.source_combo.currentIndex())
             destination_text = self.destination_combo.itemText(self.destination_combo.currentIndex())
-            QMessageBox.critical(mw, "Error", f"The chosen source field '{source_text}' is the same as the destination field '{destination_text}'.\nThis would overwrite the field you're reading from.\n\nTypically you want to read from a field like 'sentence' and output to 'audio', but in this case you're trying to read from 'sentence' and write to 'sentence' which cause your sentence to be overwritten")
+            QMessageBox.critical(self, "Error", f"The chosen source field '{source_text}' is the same as the destination field '{destination_text}'.\nThis would overwrite the field you're reading from.\n\nTypically you want to read from a field like 'sentence' and output to 'audio', but in this case you're trying to read from 'sentence' and write to 'sentence' which cause your sentence to be overwritten")
         else:
             self.accept()
 
@@ -700,10 +707,14 @@ def onVoicevoxOptionSelected(browser):
         print("Request timed out!")
 
     if not voicevox_exists:
-        QMessageBox.critical(mw, "Error", f"VOICEVOX service is not running. Navigate to your VOICEVOX install and run 'run.exe'. You can download VOICEVOX from https://voicevox.hiroshiba.jp/ if you do not have it installed")
+        QMessageBox.critical(browser, "Error", f"VOICEVOX service is not running. Navigate to your VOICEVOX install and run 'run.exe'. You can download VOICEVOX from https://voicevox.hiroshiba.jp/ if you do not have it installed")
         return
 
     dialog = MyDialog(browser)
+
+    if dialog.initialization_failed:
+        return
+
     if dialog.exec():
         (speaker_index, speaker, style_info) = getSpeaker(dialog.speakers, dialog.speaker_combo, dialog.style_combo)
         if speaker_index is None:
