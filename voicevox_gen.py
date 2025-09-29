@@ -2,10 +2,12 @@ from aqt.qt import QComboBox, QHBoxLayout, QLabel, QPushButton, QApplication, QM
 from aqt import browser, gui_hooks, qt
 from aqt import mw
 from aqt.sound import av_player
+from aqt.operations.note import update_notes
 import requests
 import json 
 import urllib.parse
 from aqt.utils import showText
+from aqt.utils import showInfo
 from os.path import join, exists, dirname
 import random
 import base64
@@ -18,6 +20,8 @@ import traceback
 import re, html
 import json
 import datetime
+from .setting_config import SETTING_MAP
+from .preset_manager import PresetManager
 
 VOICEVOX_CONFIG_NAME = "VOICEVOX_CONFIG"
 
@@ -26,18 +30,26 @@ def getCommonFields(selected_notes):
 
     first = True
 
+    first_model_fields = []
+
     for note_id in selected_notes:
         note = mw.col.get_note(note_id)
         if note is None: 
             raise Exception(f"Note with id {note_id} is None.\nNotes: {','.join([mw.col.get_note(id) for id in selected_notes])}.\nPlease submit an issues with more information about what cards caused this at https://github.com/Toocanzs/anki-voicevox/issues/new")
         model = note.note_type()
-        model_fields = set([f['name'] for f in model['flds']])
+        current_fields = [f['name'] for f in model['flds']]
+        model_fields = set(current_fields)
         if first:
+            first_model_fields = current_fields
             common_fields = model_fields # Take the first one as is and we will intersect it with the following ones
         else:
             common_fields = common_fields.intersection(model_fields) # Find the common fields by intersecting the set of all fields together
         first = False
-    return common_fields
+
+    sorted_common_fields = [name for name in first_model_fields if name in common_fields]
+
+    return sorted_common_fields
+
 def getSpeakersOrNone():
     try:
         speakers_response = requests.get("http://127.0.0.1:50021/speakers", timeout=5)
@@ -112,6 +124,9 @@ def parse_filename_template(template: str, placeholders: dict) -> str:
 class MyDialog(qt.QDialog):
     def __init__(self, browser, parent=None) -> None:
         super().__init__(parent)
+
+        self.initialization_failed = False
+
         self.selected_notes = browser.selectedNotes()
 
         config = mw.addonManager.getConfig(__name__)
@@ -125,9 +140,54 @@ class MyDialog(qt.QDialog):
         common_fields = getCommonFields(self.selected_notes)
 
         if len(common_fields) < 1:
-            QMessageBox.critical(mw, "Error", f"The chosen notes share no fields in common. Make sure you're not selecting two different note types")
+            QMessageBox.critical(browser, "Error", f"The chosen notes share no fields in common. Make sure you're not selecting two different note types")
+            self.initialization_failed = True
+            return
         elif len(common_fields) == 1:
-            QMessageBox.critical(mw, "Error", f"The chosen notes only share a single field in common '{list(common_fields)[0]}'. This would leave no field to put the generated audio without overwriting the sentence data")
+            QMessageBox.critical(browser, "Error", f"The chosen notes only share a single field in common '{common_fields[0]}'. This would leave no field to put the generated audio without overwriting the sentence data")
+            self.initialization_failed = True
+            return
+
+        # Preset management UI
+        preset_layout = qt.QHBoxLayout()
+
+        # The label for the preset dropdown.
+        preset_label = qt.QLabel("Preset:")
+
+        # The preset dropdown menu. It expands to fill available space.
+        self.preset_combo = qt.QComboBox()
+        self.preset_combo.setToolTip("Select a preset")
+
+        # Create all the buttons for the preset UI and set their fixed width using a local variable.
+        preset_button_width = 100
+        self.save_preset_button = qt.QPushButton("Save")
+        self.save_preset_button.setToolTip("Save current settings as a new preset")
+        self.save_preset_button.setFixedWidth(preset_button_width)
+        
+        self.rename_preset_button = qt.QPushButton("Rename")
+        self.rename_preset_button.setToolTip("Rename current preset")
+        self.rename_preset_button.setFixedWidth(preset_button_width)
+
+        self.delete_preset_button = qt.QPushButton("Delete")
+        self.delete_preset_button.setToolTip("Delete current preset")
+        self.delete_preset_button.setFixedWidth(preset_button_width)
+
+        # Add all widgets to the layout
+        preset_layout.addWidget(preset_label)
+        preset_layout.addWidget(self.preset_combo, 1) # Add a stretch factor of 1 to the combo box
+        
+        # A fixed-width spacer to maintain a gap between the combo box and buttons.
+        preset_layout.addSpacing(20)
+        
+        # An expanding space that pushes the following widgets to the right.
+        preset_layout.addStretch()
+        
+        preset_layout.addWidget(self.save_preset_button)
+        preset_layout.addWidget(self.rename_preset_button)
+        preset_layout.addWidget(self.delete_preset_button)
+        
+        # Add the horizontal preset layout to the main vertical layout.
+        layout.addLayout(preset_layout)
 
         self.source_combo = qt.QComboBox()
         self.destination_combo = qt.QComboBox()
@@ -194,18 +254,8 @@ class MyDialog(qt.QDialog):
 
         self.style_combo = qt.QComboBox()
 
-        def update_speaker_style_combo_box():
-            speaker_name = self.speaker_combo.itemText(self.speaker_combo.currentIndex())
-            speaker = next((x for x in self.speakers if x[0] == speaker_name), None) # grab the first speaker with this name
-            if speaker is None:
-                print("Speaker not found in update_speaker_style_combo_box")
-                return
-            self.style_combo.clear()
-            for style in speaker[1]:
-                self.style_combo.addItem(style[0])
-
-        self.speaker_combo.currentIndexChanged.connect(update_speaker_style_combo_box)
-        update_speaker_style_combo_box() # run this the first time so the default speaker style is setup
+        self.speaker_combo.currentIndexChanged.connect(self.update_speaker_style_combo_box)
+        self.update_speaker_style_combo_box() # run this the first time so the default speaker style is setup
 
         last_speaker_name = config.get('last_speaker_name') or None
         last_style_name = config.get('last_style_name') or None
@@ -219,6 +269,15 @@ class MyDialog(qt.QDialog):
                 break
             i += 1
 
+        # Temporarily block the signal to prevent premature style list clearing
+        self.speaker_combo.blockSignals(True)
+        self.speaker_combo.setCurrentIndex(speaker_combo_index)
+        self.speaker_combo.blockSignals(False)  # Unblock it after setting speaker
+
+        # Manually trigger the style update *after* the correct speaker is set
+        self.update_speaker_style_combo_box()
+
+        # Now find the style index based on the *newly populated* styles list
         style_combo_index = 0
         i = 0
         for style_item in [self.style_combo.itemText(i) for i in range(self.style_combo.count())]:
@@ -227,7 +286,6 @@ class MyDialog(qt.QDialog):
                 break
             i += 1
 
-        self.speaker_combo.setCurrentIndex(speaker_combo_index)
         self.style_combo.setCurrentIndex(style_combo_index) # NOTE: The previous style should probably be stored as a tuple with the speaker, but this is good enough. IE. Person A style X is not the same as Person B style X
 
         self.grid_layout.addWidget(qt.QLabel("Style: "), 1, 2)
@@ -240,6 +298,7 @@ class MyDialog(qt.QDialog):
 
         def voiceValueChanged(*args):
             resetPreviewIndex(*args)
+            self.preset_manager.clear_preset_selection() # Clear preset selection on voice change
 
         # Connect the voice value changed signals
         self.speaker_combo.currentIndexChanged.connect(voiceValueChanged)
@@ -262,15 +321,26 @@ class MyDialog(qt.QDialog):
 
         self.grid_layout.addLayout(preview_layout, 1, 4)
 
+        # Overwrite Audio
+        self.overwrite_audio = qt.QCheckBox("Overwrite Audio")
+        # Overwrite should be the default
+        overwrite_audio_checked = config.get('overwrite_audio') or "true"
+        self.overwrite_audio.setChecked(True if overwrite_audio_checked == "true" else False)
+        self.grid_layout.addWidget(self.overwrite_audio, 2, 0)
+
         self.append_audio =  qt.QCheckBox("Append Audio")
         append_audio_checked = config.get('append_audio') or "false"
         self.append_audio.setChecked(True if append_audio_checked == "true" else False)
-        self.grid_layout.addWidget(self.append_audio, 2, 0)
+        self.grid_layout.addWidget(self.append_audio, 2, 1)
+
+        # Ensure only one of the two checkboxes can be selected at a time.
+        self.overwrite_audio.clicked.connect(lambda: self.append_audio.setChecked(False))
+        self.append_audio.clicked.connect(lambda: self.overwrite_audio.setChecked(False))
 
         self.use_opus =  qt.QCheckBox("Use opus instead of mp3")
         use_opus_checked = config.get('use_opus') or "false"
         self.use_opus.setChecked(True if use_opus_checked == "true" else False)
-        self.grid_layout.addWidget(self.use_opus, 2, 1)
+        self.grid_layout.addWidget(self.use_opus, 2, 2)
 
         # Filename template
         self.grid_layout.addWidget(qt.QLabel("Filename: "), 3, 0)
@@ -359,99 +429,173 @@ class MyDialog(qt.QDialog):
         def update_slider(slider, label, config_name, slider_desc):
             def update_this_slider(value):
                 label.setText(f'{slider_desc} {slider.value() / 100}')
-                config[config_name] = slider.value()
-                mw.addonManager.writeConfig(__name__, config)
             return update_this_slider
         
-        volume_slider = QSlider(qt.Qt.Orientation.Horizontal)
-        volume_slider.setMinimum(0)
-        volume_slider.setMaximum(200)
-        volume_slider.setValue(config.get('volume_slider_value') or 100)
+        self.volume_slider = QSlider(qt.Qt.Orientation.Horizontal)
+        self.volume_slider.setMinimum(0)
+        self.volume_slider.setMaximum(200)
+        self.volume_slider.setValue(config.get('volume_slider_value') or 100)
         
-        volume_label = QLabel(f'Volume scale {volume_slider.value() / 100}')
+        volume_label = QLabel(f'Volume scale {self.volume_slider.value() / 100}')
         
-        volume_slider.valueChanged.connect(update_slider(volume_slider, volume_label, 'volume_slider_value', 'Volume scale'))
-        volume_slider.valueChanged.connect(voiceValueChanged)
+        self.volume_slider.valueChanged.connect(update_slider(self.volume_slider, volume_label, 'volume_slider_value', 'Volume scale'))
+        self.volume_slider.valueChanged.connect(voiceValueChanged)
 
         self.grid_layout.addWidget(volume_label, 5, 0, 1, 2)
-        self.grid_layout.addWidget(volume_slider, 5, 3, 1, 2)
+        self.grid_layout.addWidget(self.volume_slider, 5, 3, 1, 2)
         
-        pitch_slider = QSlider(qt.Qt.Orientation.Horizontal)
-        pitch_slider.setMinimum(-15)
-        pitch_slider.setMaximum(15)
-        pitch_slider.setValue(config.get('pitch_slider_value') or 0)
+        self.pitch_slider = QSlider(qt.Qt.Orientation.Horizontal)
+        self.pitch_slider.setMinimum(-15)
+        self.pitch_slider.setMaximum(15)
+        self.pitch_slider.setValue(config.get('pitch_slider_value') or 0)
         
-        pitch_label = QLabel(f'Pitch scale {pitch_slider.value() / 100}')
+        pitch_label = QLabel(f'Pitch scale {self.pitch_slider.value() / 100}')
         
-        pitch_slider.valueChanged.connect(update_slider(pitch_slider, pitch_label, 'pitch_slider_value', 'Pitch scale'))
-        pitch_slider.valueChanged.connect(voiceValueChanged)
+        self.pitch_slider.valueChanged.connect(update_slider(self.pitch_slider, pitch_label, 'pitch_slider_value', 'Pitch scale'))
+        self.pitch_slider.valueChanged.connect(voiceValueChanged)
 
         self.grid_layout.addWidget(pitch_label, 6, 0, 1, 2)
-        self.grid_layout.addWidget(pitch_slider, 6, 3, 1, 2)
+        self.grid_layout.addWidget(self.pitch_slider, 6, 3, 1, 2)
         
-        speed_slider = QSlider(qt.Qt.Orientation.Horizontal)
-        speed_slider.setMinimum(50)
-        speed_slider.setMaximum(200)
-        speed_slider.setValue(config.get('speed_slider_value') or 100)
+        self.speed_slider = QSlider(qt.Qt.Orientation.Horizontal)
+        self.speed_slider.setMinimum(50)
+        self.speed_slider.setMaximum(200)
+        self.speed_slider.setValue(config.get('speed_slider_value') or 100)
         
-        speed_label = QLabel(f'Speed scale {speed_slider.value() / 100}')
+        speed_label = QLabel(f'Speed scale {self.speed_slider.value() / 100}')
         
-        speed_slider.valueChanged.connect(update_slider(speed_slider, speed_label, 'speed_slider_value', 'Speed scale'))
-        speed_slider.valueChanged.connect(voiceValueChanged)
+        self.speed_slider.valueChanged.connect(update_slider(self.speed_slider, speed_label, 'speed_slider_value', 'Speed scale'))
+        self.speed_slider.valueChanged.connect(voiceValueChanged)
 
         self.grid_layout.addWidget(speed_label, 7, 0, 1, 2)
-        self.grid_layout.addWidget(speed_slider, 7, 3, 1, 2)
+        self.grid_layout.addWidget(self.speed_slider, 7, 3, 1, 2)
 
         # Intonation slider
-        intonation_slider = QSlider(qt.Qt.Orientation.Horizontal)
-        intonation_slider.setMinimum(1)
-        intonation_slider.setMaximum(200)
-        intonation_slider.setValue(config.get('intonation_slider_value') or 100)
+        self.intonation_slider = QSlider(qt.Qt.Orientation.Horizontal)
+        self.intonation_slider.setMinimum(1)
+        self.intonation_slider.setMaximum(200)
+        self.intonation_slider.setValue(config.get('intonation_slider_value') or 100)
         
-        intonation_label = QLabel(f'Intonation scale {intonation_slider.value() / 100}')
+        intonation_label = QLabel(f'Intonation scale {self.intonation_slider.value() / 100}')
         
-        intonation_slider.valueChanged.connect(update_slider(intonation_slider, intonation_label, 'intonation_slider_value', 'Intonation scale'))
-        intonation_slider.valueChanged.connect(voiceValueChanged)
+        self.intonation_slider.valueChanged.connect(update_slider(self.intonation_slider, intonation_label, 'intonation_slider_value', 'Intonation scale'))
+        self.intonation_slider.valueChanged.connect(voiceValueChanged)
 
         self.grid_layout.addWidget(intonation_label, 8, 0, 1, 2)
-        self.grid_layout.addWidget(intonation_slider, 8, 3, 1, 2)
+        self.grid_layout.addWidget(self.intonation_slider, 8, 3, 1, 2)
 
         # Initial silence slider
-        initial_silence_slider = QSlider(qt.Qt.Orientation.Horizontal)
-        initial_silence_slider.setMinimum(0)
-        initial_silence_slider.setMaximum(150)
-        initial_silence_slider.setValue(config.get('initial_silence_slider_value') or 10)
+        self.initial_silence_slider = QSlider(qt.Qt.Orientation.Horizontal)
+        self.initial_silence_slider.setMinimum(0)
+        self.initial_silence_slider.setMaximum(150)
+        self.initial_silence_slider.setValue(config.get('initial_silence_slider_value') or 10)
 
-        initial_silence_label = QLabel(f'Initial silence scale {initial_silence_slider.value() / 100}')
+        initial_silence_label = QLabel(f'Initial silence scale {self.initial_silence_slider.value() / 100}')
 
-        initial_silence_slider.valueChanged.connect(update_slider(initial_silence_slider, initial_silence_label, 'initial_silence_slider_value', 'Initial silence scale'))
-        initial_silence_slider.valueChanged.connect(voiceValueChanged)
+        self.initial_silence_slider.valueChanged.connect(update_slider(self.initial_silence_slider, initial_silence_label, 'initial_silence_slider_value', 'Initial silence scale'))
+        self.initial_silence_slider.valueChanged.connect(voiceValueChanged)
 
         self.grid_layout.addWidget(initial_silence_label, 9, 0, 1, 2)
-        self.grid_layout.addWidget(initial_silence_slider, 9, 3, 1, 2)
+        self.grid_layout.addWidget(self.initial_silence_slider, 9, 3, 1, 2)
 
         # Final silence slider
-        final_silence_slider = QSlider(qt.Qt.Orientation.Horizontal)
-        final_silence_slider.setMinimum(0)
-        final_silence_slider.setMaximum(150)
-        final_silence_slider.setValue(config.get('final_silence_slider_value') or 10)
+        self.final_silence_slider = QSlider(qt.Qt.Orientation.Horizontal)
+        self.final_silence_slider.setMinimum(0)
+        self.final_silence_slider.setMaximum(150)
+        self.final_silence_slider.setValue(config.get('final_silence_slider_value') or 10)
 
-        final_silence_label = QLabel(f'Final silence length {final_silence_slider.value() / 100}')
+        final_silence_label = QLabel(f'Final silence length {self.final_silence_slider.value() / 100}')
 
-        final_silence_slider.valueChanged.connect(update_slider(final_silence_slider, final_silence_label, 'final_silence_slider_value', 'Final silence scale'))
-        final_silence_slider.valueChanged.connect(voiceValueChanged)
+        self.final_silence_slider.valueChanged.connect(update_slider(self.final_silence_slider, final_silence_label, 'final_silence_slider_value', 'Final silence scale'))
+        self.final_silence_slider.valueChanged.connect(voiceValueChanged)
 
         self.grid_layout.addWidget(final_silence_label, 10, 0, 1, 2)
-        self.grid_layout.addWidget(final_silence_slider, 10, 3, 1, 2)
+        self.grid_layout.addWidget(self.final_silence_slider, 10, 3, 1, 2)
+
+        self.preset_manager = PresetManager(self, __name__)
+
+        # Connect setting controls to clear preset on change
+        # NOTE: Controls connected to voiceValueChanged() are implicitly handled, 
+        # as that function already calls _clear_preset_selection()
+        self.destination_combo.currentIndexChanged.connect(self.preset_manager.clear_preset_selection)
+        self.filename_template_edit.textChanged.connect(self.preset_manager.clear_preset_selection)
+        self.overwrite_audio.stateChanged.connect(self.preset_manager.clear_preset_selection)
+        self.append_audio.stateChanged.connect(self.preset_manager.clear_preset_selection)
+        self.use_opus.stateChanged.connect(self.preset_manager.clear_preset_selection)
         
         layout.addLayout(self.grid_layout)
 
         self.setLayout(layout)
+    
+    def update_speaker_style_combo_box(self):
+            speaker_name = self.speaker_combo.itemText(self.speaker_combo.currentIndex())
+            speaker = next((x for x in self.speakers if x[0] == speaker_name), None) # grab the first speaker with this name
+            if speaker is None:
+                print("Speaker not found in update_speaker_style_combo_box")
+                return
+            self.style_combo.clear()
+            for style in speaker[1]:
+                self.style_combo.addItem(style[0])
+
+    def get_current_settings(self):
+        """
+        Gathers the current UI settings into a dictionary using the SETTING_MAP.
+        """
+        settings = {}
+        # Iterate using the namedtuple for clean access
+        for key, setting_config in SETTING_MAP.items():
+
+            # Get the widget instance (e.g., self.volume_slider)
+            widget = getattr(self, setting_config.attr_name, None)
+            if widget is None:
+                # This should ideally not happen if SETTING_MAP is correct
+                print(
+                    f"Warning: Widget attribute '{setting_config.attr_name}' not found on MyDialog."
+                )
+                continue
+
+            # Get the getter method (e.g., .value, .currentText, .isChecked)
+            getter = getattr(widget, setting_config.getter_name)
+
+            # Call the getter method to get the raw value
+            raw_value = getter()
+
+            # Apply conversion for saving if a saver function is defined
+            if setting_config.saver_func:
+                settings[key] = setting_config.saver_func(raw_value)
+            else:
+                # All other values (text, int from slider) can be saved directly
+                settings[key] = raw_value
+
+        return settings
+
+    def _save_transient_settings(self):
+        """
+        Saves the specific values (only SLIDER values for now)
+        when the dialog closes (Accept or Reject).
+        Other settings are saved only after audio generation.
+        """
+        config = mw.addonManager.getConfig(__name__)
+        current_settings = self.get_current_settings()
+
+        # Only save SLIDER related settings
+        for key, value in current_settings.items():
+            # Check if the key corresponds to a slider value
+            if "slider_value" in key:
+                config[key] = value
+
+        mw.addonManager.writeConfig(__name__, config)
+
+    def reject(self):
+        """Override reject to save transient settings before closing."""
+        self._save_transient_settings()
+        super().reject()
+
     def pre_accept(self):
         if self.source_combo.currentIndex() == self.destination_combo.currentIndex():
             source_text = self.source_combo.itemText(self.source_combo.currentIndex())
             destination_text = self.destination_combo.itemText(self.destination_combo.currentIndex())
-            QMessageBox.critical(mw, "Error", f"The chosen source field '{source_text}' is the same as the destination field '{destination_text}'.\nThis would overwrite the field you're reading from.\n\nTypically you want to read from a field like 'sentence' and output to 'audio', but in this case you're trying to read from 'sentence' and write to 'sentence' which cause your sentence to be overwritten")
+            QMessageBox.critical(self, "Error", f"The chosen source field '{source_text}' is the same as the destination field '{destination_text}'.\nThis would overwrite the field you're reading from.\n\nTypically you want to read from a field like 'sentence' and output to 'audio', but in this case you're trying to read from 'sentence' and write to 'sentence' which cause your sentence to be overwritten")
         else:
             self.accept()
 
@@ -494,7 +638,8 @@ class MyDialog(qt.QDialog):
             self.preview_note_index += 1
 
         tup = (text, speaker_index)
-        result = GenerateAudioQuery(tup, mw.addonManager.getConfig(__name__))
+        current_settings = self.get_current_settings()
+        result = GenerateAudioQuery(tup, current_settings)
         contents = SynthesizeAudio(result, speaker_index)
 
         addon_path = dirname(__file__)
@@ -509,7 +654,7 @@ class MyDialog(qt.QDialog):
     def PreviewVoiceActual(self):
         self.PreviewVoice(sample=False)
 
-def GenerateAudioQuery(text_and_speaker_index_tuple, config):
+def GenerateAudioQuery(text_and_speaker_index_tuple, settings: dict):
     try:
         text = text_and_speaker_index_tuple[0]
         speaker_index = text_and_speaker_index_tuple[1]
@@ -519,18 +664,18 @@ def GenerateAudioQuery(text_and_speaker_index_tuple, config):
             
         result = audio_query_response.text
         j = json.loads(result)
-        if config.get('speed_slider_value'):
-            j['speedScale'] = config.get('speed_slider_value') / 100;
-        if config.get('volume_slider_value'):
-            j['volumeScale'] = config.get('volume_slider_value') / 100;
-        if config.get('pitch_slider_value'):
-            j['pitchScale'] = config.get('pitch_slider_value') / 100;
-        if config.get('intonation_slider_value'):
-            j['intonationScale'] = config.get('intonation_slider_value') / 100;
-        if config.get('initial_silence_slider_value'):
-            j['prePhonemeLength'] = config.get('initial_silence_slider_value') / 100;
-        if config.get('final_silence_slider_value'):
-            j['postPhonemeLength'] = config.get('final_silence_slider_value') / 100;
+        if settings.get('speed_slider_value'):
+            j['speedScale'] = settings.get('speed_slider_value') / 100
+        if settings.get('volume_slider_value'):
+            j['volumeScale'] = settings.get('volume_slider_value') / 100
+        if settings.get('pitch_slider_value'):
+            j['pitchScale'] = settings.get('pitch_slider_value') / 100
+        if settings.get('intonation_slider_value'):
+            j['intonationScale'] = settings.get('intonation_slider_value') / 100
+        if settings.get('initial_silence_slider_value'):
+            j['prePhonemeLength'] = settings.get('initial_silence_slider_value') / 100
+        if settings.get('final_silence_slider_value'):
+            j['postPhonemeLength'] = settings.get('final_silence_slider_value') / 100
         result = json.dumps(j, ensure_ascii=False).encode('utf8')
         return result
     except Exception as e:
@@ -570,31 +715,35 @@ def onVoicevoxOptionSelected(browser):
         print("Request timed out!")
 
     if not voicevox_exists:
-        QMessageBox.critical(mw, "Error", f"VOICEVOX service is not running. Navigate to your VOICEVOX install and run 'run.exe'. You can download VOICEVOX from https://voicevox.hiroshiba.jp/ if you do not have it installed")
+        QMessageBox.critical(browser, "Error", f"VOICEVOX service is not running. Navigate to your VOICEVOX install and run 'run.exe'. You can download VOICEVOX from https://voicevox.hiroshiba.jp/ if you do not have it installed")
         return
 
     dialog = MyDialog(browser)
+
+    if dialog.initialization_failed:
+        return
+
     if dialog.exec():
         (speaker_index, speaker, style_info) = getSpeaker(dialog.speakers, dialog.speaker_combo, dialog.style_combo)
         if speaker_index is None:
             raise Exception('getSpeaker returned None in my_action')
         
-        source_field = dialog.source_combo.itemText(dialog.source_combo.currentIndex())
-        destination_field = dialog.destination_combo.itemText(dialog.destination_combo.currentIndex())
+        # Use get_current_settings to capture all general settings (sliders, template, append/opus, combo box current text, etc.)
+        current_settings = dialog.get_current_settings()
 
-        speaker_combo_text = dialog.speaker_combo.itemText(dialog.speaker_combo.currentIndex())
-        style_combo_text = dialog.style_combo.itemText(dialog.style_combo.currentIndex())
-        user_template = dialog.filename_template_edit.text()
+        destination_field = current_settings.get("destination_field")
+        speaker_combo_text = current_settings.get("speaker_name")
+        style_combo_text = current_settings.get("style_name")
 
         # Save previously used stuff
         config = mw.addonManager.getConfig(__name__)
-        config['last_source_field'] = source_field
-        config['last_destination_field'] = destination_field
-        config['last_speaker_name'] = speaker_combo_text
-        config['last_style_name'] = style_combo_text
-        config['append_audio'] = "true" if dialog.append_audio.isChecked() else "false"
-        config['use_opus'] = "true" if dialog.use_opus.isChecked() else "false"
-        config['filename_template'] = user_template
+
+        # NOTE: Standard settings should be saved via SETTING_MAP's fields
+        # Only add keys here if they require non-standard naming or handling
+        for key, value in current_settings.items():
+            if key in ["source_field", "destination_field", "speaker_name", "style_name"]:
+                key = f"last_{key}"
+            config[key] = value
 
         mw.addonManager.writeConfig(__name__, config)
 
@@ -615,8 +764,8 @@ def onVoicevoxOptionSelected(browser):
         progress_window.show()
         progress_window.setFocus()
 
-        def updateProgress(notes_so_far, total_notes, bottom_text = ''):
-            progress_text.setText(f"Generating Audio {notes_so_far}/{total_notes}\n{bottom_text}")
+        def updateProgress(notes_so_far, total_notes, skipped_notes = 0, bottom_text = ''):
+            progress_text.setText(f"Generating Audio {notes_so_far}/{total_notes}\nSkipped: {skipped_notes}\n{bottom_text}")
             progress_bar.setMaximum(total_notes)
             progress_bar.setValue(notes_so_far)
             mw.app.processEvents()
@@ -628,35 +777,70 @@ def onVoicevoxOptionSelected(browser):
             # Limit filename length to something reasonable (255 is typical for most filesystems)
             return sanitized[:255]
 
+        # Before processing, we pre-filter the selected notes to include
+        # only those with non-empty text in the source field.
+        # This prevents unnecessary API calls and the creation of empty audio files.
+        # Also, skip notes that already have audio if 'Overwrite Audio' is false.
+        notes_to_process = []
+        skipped_notes_count = 0
+        destination_field = dialog.destination_combo.itemText(dialog.destination_combo.currentIndex())
+        overwrite_mode = dialog.overwrite_audio.isChecked()
+
+        for note_id in dialog.selected_notes:
+            note_text, _ = dialog.getNoteTextAndSpeaker(note_id)
+            
+            # Check if source field is empty
+            if not note_text or not note_text.strip():
+                skipped_notes_count += 1
+                continue # Skip notes with no source text
+
+            # If not in overwrite mode, check if destination field has content
+            if not overwrite_mode:
+                note = mw.col.get_note(note_id)
+                destination_content = note[destination_field]
+                if destination_content and destination_content.strip():
+                    skipped_notes_count += 1
+                    continue # Skip notes with existing content in destination field
+            
+            # If we reach here, the note should be processed.
+            notes_to_process.append(note_id)
+
+        if not notes_to_process:
+            showInfo(f"Nothing processed.\nSkipped: {skipped_notes_count}")
+            return
+
         # We split the work into chunks so we can pass a bunch of audio queries to the synthesizer instead of doing them one at time, but we don't want to do all of them at once so chunks make the most sense
         CHUNK_SIZE = 4
-        note_chunks = DivideIntoChunks(dialog.selected_notes, CHUNK_SIZE)
+        note_chunks = DivideIntoChunks(notes_to_process, CHUNK_SIZE)
         notes_so_far = 0
-        total_notes = len(dialog.selected_notes)
-        updateProgress(notes_so_far, total_notes)
+        total_notes = len(notes_to_process)
+        updateProgress(notes_so_far, total_notes, skipped_notes_count)
 
         # Pre-cache user template for performance
-        filename_template = config.get("filename_template", "VOICEVOX_{{speaker}}_{{style}}_{{uid}}")
+        filename_template = current_settings.get("filename_template", "VOICEVOX_{{speaker}}_{{style}}_{{uid}}")
+
+        # Notes in this list will be updated later as a batch
+        notes_to_update = []
 
         for note_chunk in note_chunks:
             note_text_and_speakers = map(dialog.getNoteTextAndSpeaker, note_chunk)
-            updateProgress(notes_so_far, total_notes, f"Audio Query: {0}/{len(note_chunk)}")
+            updateProgress(notes_so_far, total_notes, skipped_notes_count, f"Audio Query: {0}/{len(note_chunk)}")
             query_count = 0
             def GenerateQueryAndUpdateProgress(x, query_count):
-                updateProgress(notes_so_far, total_notes, f"Audio Query: {query_count}/{len(note_chunk)}")
+                updateProgress(notes_so_far, total_notes, skipped_notes_count, f"Audio Query: {query_count}/{len(note_chunk)}")
                 query_count+=1
-                return GenerateAudioQuery(x, config)
+                return GenerateAudioQuery(x, current_settings)
 
             audio_queries = list(map(lambda note: GenerateQueryAndUpdateProgress(note, query_count), note_text_and_speakers))
             media_dir = mw.col.media.dir()
-            updateProgress(notes_so_far, total_notes, f"Synthesizing Audio {notes_so_far} to {min(notes_so_far+CHUNK_SIZE, total_notes)}")
+            updateProgress(notes_so_far, total_notes, skipped_notes_count, f"Synthesizing Audio {notes_so_far} to {min(notes_so_far+CHUNK_SIZE, total_notes)}")
             zip_bytes = MultiSynthesizeAudio(audio_queries, speaker_index)
 
             # MultiSynthesis returns zip bytes with ZIP_STORED
             zip_counter = 0
             with zipfile.ZipFile(io.BytesIO(zip_bytes), "r", zipfile.ZIP_STORED) as wavs_zip:
                 for name in wavs_zip.namelist():
-                    updateProgress(notes_so_far, total_notes, f"Converting Audio: {zip_counter}/{len(note_chunk)}")
+                    updateProgress(notes_so_far, total_notes, skipped_notes_count, f"Converting Audio: {zip_counter}/{len(note_chunk)}")
                     zip_counter+=1
                     audio_data = wavs_zip.read(name)
                     chunk_note_index = int(name.replace('.wav', '')) - 1 # Starts at 001.wav, this converts to 0 index
@@ -664,16 +848,17 @@ def onVoicevoxOptionSelected(browser):
                     
                     audio_extension = "wav"
 
-                    new_audio_format = "opus" if config['use_opus'] == "true" else "mp3"
+                    new_audio_format = "opus" if current_settings['use_opus'] == "true" else "mp3"
                     new_audio_data = ffmpeg.ConvertWav(audio_data, new_audio_format)
                     if new_audio_data != None:
                         audio_data = new_audio_data
                         audio_extension = new_audio_format
 
+                    note = mw.col.get_note(note_id)
+
                     # Build placeholders
-                    note_obj = mw.col.get_note(note_id)
-                    fields_map = {f: note_obj[f] for f in note_obj.keys()}
-                    cards_of_note = note_obj.cards()
+                    fields_map = {f: note[f] for f in note.keys()}
+                    cards_of_note = note.cards()
                     if cards_of_note:
                         deck_id = cards_of_note[0].did
                         deck_name = mw.col.decks.name(deck_id)
@@ -701,14 +886,18 @@ def onVoicevoxOptionSelected(browser):
                         f.write(audio_data)
 
                     audio_field_text = f"[sound:{filename}]"
-                    note = mw.col.get_note(note_id)
                     if config['append_audio'] == "true":
                         note[destination_field] += audio_field_text
                     else:
                         note[destination_field] = audio_field_text
-                    mw.col.update_note(note)
+                    notes_to_update.append(note)
                     mw.app.processEvents()
                     notes_so_far += 1
+
+        if notes_to_update:
+            # Use anki's built in function to do this update
+            # to ensure the operation is undoable
+            update_notes(parent = mw, notes = notes_to_update).run_in_background()
         mw.progress.finish()
         mw.reset() # reset mw so our changes are applied
     else:
