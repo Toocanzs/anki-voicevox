@@ -28,6 +28,9 @@ class PresetManager:
         # Initialize the combo box data
         self.load_preset_names()
 
+        # Set initial button states immediately on initialization
+        self._update_button_states()
+
     def _get_config(self) -> dict:
         """Helper to get the addon configuration."""
         return mw.addonManager.getConfig(self.addon_name)
@@ -80,9 +83,25 @@ class PresetManager:
         # Manually trigger style update if speaker combo was set without signal
         # This is necessary because we blockSignals on the style combo in load_preset
         if settings.get("speaker_name"):
-            self.dialog.update_speaker_style_combo_box()  # Make sure this helper is public or accessible
+            self.dialog.update_speaker_style_combo_box()
 
         self._is_loading_preset = False  # Reset flag
+
+    def _update_button_states(self):
+        """
+        Enables/disables management buttons based on the currently selected preset.
+        """
+        # currentData() returns the actual preset name or "" for the "---" item.
+        current_preset_name = self.dialog.preset_combo.currentData()
+
+        # Check if a valid, non-Default preset is selected.
+        is_valid_user_preset = (current_preset_name != "") and (
+            current_preset_name != "Default"
+        )
+
+        # Rename, and Delete buttons are only enabled for user-defined presets
+        self.dialog.rename_preset_button.setEnabled(is_valid_user_preset)
+        self.dialog.delete_preset_button.setEnabled(is_valid_user_preset)
 
     def load_preset_names(self, select_name: str = None):
         """Loads preset names into the combo box."""
@@ -116,6 +135,10 @@ class PresetManager:
         internal_view.setRowHidden(0, True)
 
         self.dialog.preset_combo.setCurrentIndex(index_to_select)
+
+        # Update button states after setting the index
+        self._update_button_states()
+
         self.dialog.preset_combo.blockSignals(False)
 
     def load_preset(self):
@@ -137,6 +160,9 @@ class PresetManager:
         if preset_settings:
             # Apply settings to the UI
             self._apply_settings_to_ui(preset_settings)
+
+            # Update button states after loading is complete
+            self._update_button_states()
 
             # Save the last loaded preset name
             config["last_preset"] = preset_name
@@ -306,3 +332,6 @@ class PresetManager:
             self.dialog.preset_combo.blockSignals(True)
             self.dialog.preset_combo.setCurrentIndex(0)
             self.dialog.preset_combo.blockSignals(False)
+
+        # Update states even if no selection was cleared
+        self._update_button_states()
