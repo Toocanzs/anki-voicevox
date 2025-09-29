@@ -85,6 +85,16 @@ SETTING_MAP = {
         group="Voice",
     ),
     # Boolean Checkboxes: Needs both loader_func and saver_func
+    "overwrite_audio": SettingConfig(
+        "overwrite_audio",
+        "isChecked",
+        "setChecked",
+        loader_func=str_to_bool,
+        saver_func=bool_to_str,
+        default_value=True,
+        emit_signal_on_load=True,
+        group="File Options",
+    ),
     "append_audio": SettingConfig(
         "append_audio",
         "isChecked",

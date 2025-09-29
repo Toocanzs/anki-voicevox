@@ -503,6 +503,7 @@ class MyDialog(qt.QDialog):
         # as that function already calls _clear_preset_selection()
         self.destination_combo.currentIndexChanged.connect(self.preset_manager.clear_preset_selection)
         self.filename_template_edit.textChanged.connect(self.preset_manager.clear_preset_selection)
+        self.overwrite_audio.stateChanged.connect(self.preset_manager.clear_preset_selection)
         self.append_audio.stateChanged.connect(self.preset_manager.clear_preset_selection)
         self.use_opus.stateChanged.connect(self.preset_manager.clear_preset_selection)
         
