@@ -2,6 +2,7 @@ from aqt.qt import QComboBox, QHBoxLayout, QLabel, QPushButton, QApplication, QM
 from aqt import browser, gui_hooks, qt
 from aqt import mw
 from aqt.sound import av_player
+from aqt.operations.note import update_notes
 import requests
 import json 
 import urllib.parse
@@ -799,6 +800,9 @@ def onVoicevoxOptionSelected(browser):
         # Pre-cache user template for performance
         filename_template = current_settings.get("filename_template", "VOICEVOX_{{speaker}}_{{style}}_{{uid}}")
 
+        # Notes in this list will be updated later as a batch
+        notes_to_update = []
+
         for note_chunk in note_chunks:
             note_text_and_speakers = map(dialog.getNoteTextAndSpeaker, note_chunk)
             updateProgress(notes_so_far, total_notes, skipped_notes_count, f"Audio Query: {0}/{len(note_chunk)}")
@@ -867,9 +871,14 @@ def onVoicevoxOptionSelected(browser):
                         note[destination_field] += audio_field_text
                     else:
                         note[destination_field] = audio_field_text
-                    mw.col.update_note(note)
+                    notes_to_update.append(note)
                     mw.app.processEvents()
                     notes_so_far += 1
+
+        if notes_to_update:
+            # Use anki's built in function to do this update
+            # to ensure the operation is undoable
+            update_notes(parent = mw, notes = notes_to_update).run_in_background()
         mw.progress.finish()
         mw.reset() # reset mw so our changes are applied
     else:
