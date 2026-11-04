@@ -20,6 +20,7 @@ import json
 import datetime
 
 VOICEVOX_CONFIG_NAME = "VOICEVOX_CONFIG"
+JSON_HEADERS = {"Content-Type": "application/json"}
 
 def getCommonFields(selected_notes):
     common_fields = set()
@@ -537,7 +538,7 @@ def GenerateAudioQuery(text_and_speaker_index_tuple, config):
         raise Exception(f"Unable to generate audio for the following text: `{text}`.\nResponse: {audio_query_response.text if audio_query_response is not None else 'None'}\n{traceback.format_exc()}")
 
 def SynthesizeAudio(audio_query_json, speaker_index):
-    synthesis_response = requests.post("http://127.0.0.1:50021/synthesis?speaker=" + str(speaker_index), data=audio_query_json)
+    synthesis_response = requests.post("http://127.0.0.1:50021/synthesis?speaker=" + str(speaker_index), data=audio_query_json, headers=JSON_HEADERS)
     if synthesis_response.status_code != 200:
         return None
     return synthesis_response.content
@@ -549,7 +550,7 @@ def MultiSynthesizeAudio(audio_queries, speaker_index): # NOTE: This returns a z
     # Create json array of queries
     combined = b"[" + b','.join(audio_queries) + b"]"
 
-    synthesis_response = requests.post("http://127.0.0.1:50021/multi_synthesis?speaker=" + str(speaker_index), data=combined)
+    synthesis_response = requests.post("http://127.0.0.1:50021/multi_synthesis?speaker=" + str(speaker_index), data=combined, headers=JSON_HEADERS)
     if synthesis_response.status_code != 200:
         return None
     return synthesis_response.content 
